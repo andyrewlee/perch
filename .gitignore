@@ -1,0 +1,17 @@
+# Go
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
