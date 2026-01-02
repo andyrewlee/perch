@@ -95,3 +95,18 @@ var (
 			Bold(true).
 			Padding(0, 1)
 )
+
+// HUD indicator styles
+var (
+	hudConnectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00"))
+
+	hudRefreshingStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFFF00"))
+
+	hudErrorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6666"))
+
+	hudDisconnectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#666666"))
+)

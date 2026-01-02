@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -63,10 +64,19 @@ type Model struct {
 	// Selected items for actions
 	selectedRig   string
 	selectedAgent string
+
+	// Tick loop state
+	refreshInterval time.Duration
+	lastRefresh     time.Time
+	errorCount      int
+	isRefreshing    bool
 }
 
 // DefaultTownRoot is the default Gas Town root directory.
 const DefaultTownRoot = "/Users/andrewlee/gt"
+
+// DefaultRefreshInterval is how often to auto-refresh data.
+const DefaultRefreshInterval = 10 * time.Second
 
 // New creates a new Model
 func New() Model {
@@ -82,6 +92,7 @@ func New() Model {
 		keyMap:           km,
 		actionRunner:     NewActionRunner(DefaultTownRoot),
 		loader:           data.NewLoader(DefaultTownRoot),
+		refreshInterval:  DefaultRefreshInterval,
 	}
 }
 
@@ -106,6 +117,7 @@ func NewWithTown(town Town) Model {
 		keyMap:           km,
 		actionRunner:     NewActionRunner(DefaultTownRoot),
 		loader:           data.NewLoader(DefaultTownRoot),
+		refreshInterval:  DefaultRefreshInterval,
 	}
 }
 
@@ -124,6 +136,7 @@ func NewWithStore(store *data.Store, townRoot string) Model {
 		store:            store,
 		actionRunner:     NewActionRunner(townRoot),
 		loader:           data.NewLoader(townRoot),
+		refreshInterval:  DefaultRefreshInterval,
 	}
 }
 
@@ -139,12 +152,28 @@ type actionCompleteMsg struct {
 	err    error
 }
 
+// tickMsg is sent periodically to trigger auto-refresh
+type tickMsg time.Time
+
 type statusExpiredMsg struct{}
 
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
-	// Trigger initial data refresh
-	return m.refreshCmd()
+	// Start tick loop and trigger initial refresh
+	return tea.Batch(
+		m.tickCmd(),
+		m.refreshCmd(),
+	)
+}
+
+// tickCmd creates a command that sends a tickMsg after the refresh interval.
+func (m Model) tickCmd() tea.Cmd {
+	if m.refreshInterval <= 0 {
+		return nil
+	}
+	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
+		return tickMsg(t)
+	})
 }
 
 // refreshCmd creates a command that refreshes data from the town.
@@ -234,6 +263,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.handleSelect()
 
 		case key.Matches(msg, m.keyMap.Refresh):
+			m.isRefreshing = true
 			m.setStatus("Refreshing data...", false)
 			return m, m.refreshCmd()
 
@@ -276,16 +306,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.ready = true
 
+	case tickMsg:
+		// Auto-refresh on tick, schedule next tick
+		if !m.isRefreshing {
+			m.isRefreshing = true
+			return m, tea.Batch(m.tickCmd(), m.refreshCmd())
+		}
+		// Already refreshing, just schedule next tick
+		return m, m.tickCmd()
+
 	case refreshCompleteMsg:
+		m.isRefreshing = false
+		m.lastRefresh = time.Now()
+
 		if msg.err != nil {
+			m.errorCount++
 			m.setStatus("Refresh failed: "+msg.err.Error(), true)
 			return m, statusExpireCmd(5 * time.Second)
 		}
 		if msg.snapshot != nil {
 			m.updateFromSnapshot(msg.snapshot)
 			if msg.snapshot.HasErrors() {
+				m.errorCount = len(msg.snapshot.Errors)
 				m.setStatus("Refreshed with some errors", true)
 			} else {
+				m.errorCount = 0
 				m.setStatus("Data refreshed", false)
 			}
 		}
@@ -669,25 +714,95 @@ func (m Model) renderDetails(width, height int) string {
 	return style.Render(inner)
 }
 
-// renderFooter renders the footer with status message and help
+// renderFooter renders the footer with HUD indicators, status message, and help
 func (m Model) renderFooter() string {
-	// Status message takes priority
+	// Build HUD section (left side)
+	hud := m.renderHUD()
+
+	// Status message takes priority over help text
+	var rightSide string
 	if m.statusMessage != nil && !m.statusMessage.IsExpired() {
 		style := statusStyle
 		if m.statusMessage.IsError {
 			style = statusErrorStyle
 		}
-		return style.Width(m.width).Render(m.statusMessage.Text)
+		rightSide = style.Render(m.statusMessage.Text)
+	} else if m.confirmDialog != nil {
+		rightSide = confirmStyle.Render(m.confirmDialog.Message)
+	} else {
+		// Default help text with vim keys
+		rightSide = mutedStyle.Render("h/l: panels | j/k: nav | r: refresh | b: boot | s: stop | ?: help | q: quit")
 	}
 
-	// Show confirmation dialog prompt
-	if m.confirmDialog != nil {
-		return confirmStyle.Width(m.width).Render(m.confirmDialog.Message)
+	// Calculate spacing between HUD and right side
+	hudWidth := lipgloss.Width(hud)
+	rightWidth := lipgloss.Width(rightSide)
+	spacing := m.width - hudWidth - rightWidth - 2
+	if spacing < 1 {
+		spacing = 1
+	}
+	spacer := lipgloss.NewStyle().Width(spacing).Render("")
+
+	return footerStyle.Width(m.width).Render(
+		lipgloss.JoinHorizontal(lipgloss.Center, hud, spacer, rightSide),
+	)
+}
+
+// renderHUD renders the HUD indicators (connection, refresh time, errors)
+func (m Model) renderHUD() string {
+	var parts []string
+
+	// Connection/refresh status indicator
+	if m.isRefreshing {
+		parts = append(parts, hudRefreshingStyle.Render("◐"))
+	} else if m.errorCount > 0 {
+		parts = append(parts, hudErrorStyle.Render("●"))
+	} else if !m.lastRefresh.IsZero() {
+		parts = append(parts, hudConnectedStyle.Render("●"))
+	} else {
+		parts = append(parts, hudDisconnectedStyle.Render("○"))
 	}
 
-	// Default help text with vim keys and action keys
-	help := mutedStyle.Render("h/l: panels | j/k: navigate | r: refresh | b: boot | s: shutdown | o: logs | ?: help | q: quit")
-	return footerStyle.Width(m.width).Render(help)
+	// Last refresh time
+	if !m.lastRefresh.IsZero() {
+		ago := time.Since(m.lastRefresh)
+		var timeStr string
+		switch {
+		case ago < time.Minute:
+			timeStr = fmt.Sprintf("%ds", int(ago.Seconds()))
+		case ago < time.Hour:
+			timeStr = fmt.Sprintf("%dm", int(ago.Minutes()))
+		default:
+			timeStr = m.lastRefresh.Format("15:04")
+		}
+		parts = append(parts, mutedStyle.Render(timeStr))
+	}
+
+	// Error count
+	if m.errorCount > 0 {
+		errStr := fmt.Sprintf("%d err", m.errorCount)
+		if m.errorCount > 1 {
+			errStr += "s"
+		}
+		parts = append(parts, hudErrorStyle.Render(errStr))
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Center, joinHUD(parts)...)
+}
+
+// joinHUD joins HUD parts with separators
+func joinHUD(parts []string) []string {
+	if len(parts) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(parts)*2-1)
+	for i, p := range parts {
+		result = append(result, p)
+		if i < len(parts)-1 {
+			result = append(result, mutedStyle.Render(" "))
+		}
+	}
+	return result
 }
 
 // renderHelpOverlay renders the help/onboarding overlay
