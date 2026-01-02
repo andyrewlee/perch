@@ -1,0 +1,7 @@
+{
+  "merge_queue": {
+    "enabled": true,
+    "run_tests": true,
+    "test_command": "go test ./..."
+  }
+}

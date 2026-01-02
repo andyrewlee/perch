@@ -187,10 +187,12 @@ git rebase origin/main
 ```
 If conflicts unresolvable: notify polecat, skip to loop-check.
 
-**run-tests**: Run the test suite
+**run-tests**: Run the test suite (MANDATORY)
 ```bash
 go test ./...
 ```
+**CRITICAL**: Tests MUST be run before any merge. This is non-negotiable.
+The test command is configured in `settings/config.json`.
 
 **handle-failures**: **VERIFICATION GATE**
 ```
@@ -198,13 +200,23 @@ Tests PASSED -> Gate auto-satisfied, proceed to merge
 
 Tests FAILED:
 ├── Branch caused it? -> Abort, notify polecat, skip branch
+│   └── Notify: gt mail send {{ .RigName }}/<worker> -s "Tests failed" \
+│         -m "Your branch failed tests. Please fix and resubmit."
 └── Pre-existing? -> MUST do ONE of:
     ├── Fix it yourself (you're the Engineer!)
     └── File bead: bd create --type=bug --priority=1 --title="..."
 
 GATE: Cannot proceed to merge without fix OR bead filed
 ```
+**FORBIDDEN**: Merging without running tests.
 **FORBIDDEN**: Note failure and merge without tracking.
+
+If a polecat submits work that clearly wasn't tested (obvious errors, missing
+dependencies), reject immediately and notify:
+```bash
+gt mail send {{ .RigName }}/<worker> -s "Untested submission rejected" \
+  -m "Your branch was rejected. Run 'go test ./...' before resubmitting."
+```
 
 **merge-push**: Merge to main and push immediately
 ```bash
