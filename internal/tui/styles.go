@@ -70,3 +70,20 @@ var (
 				Foreground(text).
 				Italic(true)
 )
+
+// Status message styles
+var (
+	statusStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00")).
+			Padding(0, 1)
+
+	statusErrorStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6666")).
+			Bold(true).
+			Padding(0, 1)
+
+	confirmStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00")).
+			Bold(true).
+			Padding(0, 1)
+)
