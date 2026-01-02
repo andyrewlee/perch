@@ -24,10 +24,13 @@ type Model struct {
 	// Panel focus
 	focus Panel
 
-	// Placeholder content for panels
-	overviewContent string
-	sidebarContent  string
-	detailsContent  string
+	// Town data and renderer
+	town             Town
+	overviewRenderer *OverviewRenderer
+
+	// Placeholder content for panels (will be replaced by data layer)
+	sidebarContent string
+	detailsContent string
 
 	// Ready indicates the terminal size is known
 	ready bool
@@ -35,11 +38,24 @@ type Model struct {
 
 // New creates a new Model
 func New() Model {
+	town := MockTown()
 	return Model{
-		focus:           PanelOverview,
-		overviewContent: "Town Overview",
-		sidebarContent:  "Sidebar",
-		detailsContent:  "Details",
+		focus:            PanelOverview,
+		town:             town,
+		overviewRenderer: NewOverviewRenderer(town),
+		sidebarContent:   "Sidebar",
+		detailsContent:   "Details",
+	}
+}
+
+// NewWithTown creates a new Model with the given town data
+func NewWithTown(town Town) Model {
+	return Model{
+		focus:            PanelOverview,
+		town:             town,
+		overviewRenderer: NewOverviewRenderer(town),
+		sidebarContent:   "Sidebar",
+		detailsContent:   "Details",
 	}
 }
 
@@ -124,15 +140,30 @@ func (m Model) renderOverview(width, height int) string {
 		innerHeight = 1
 	}
 
-	title := titleStyle.Render("Overview")
-	content := m.overviewContent
+	title := titleStyle.Render("Town Overview")
+
+	// Use the overview renderer to generate the town map
+	var content string
+	if m.overviewRenderer != nil {
+		// Reserve space for title
+		mapHeight := innerHeight - 2
+		if mapHeight < 1 {
+			mapHeight = 1
+		}
+		content = m.overviewRenderer.Render(innerWidth, mapHeight)
+	} else {
+		content = mutedStyle.Render("No data")
+	}
 
 	// Pad content to fill space
 	lines := strings.Split(content, "\n")
-	for len(lines) < innerHeight {
+	for len(lines) < innerHeight-1 {
 		lines = append(lines, "")
 	}
-	content = strings.Join(lines[:innerHeight], "\n")
+	if len(lines) > innerHeight-1 {
+		lines = lines[:innerHeight-1]
+	}
+	content = strings.Join(lines, "\n")
 
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
 
