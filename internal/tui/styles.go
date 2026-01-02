@@ -42,11 +42,16 @@ var (
 
 	mutedStyle = lipgloss.NewStyle().
 			Foreground(muted)
+)
 
-	// Selection styles
+// List item styles
+var (
+	itemStyle = lipgloss.NewStyle().
+			Foreground(text)
+
 	selectedItemStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(highlight)
+				Foreground(highlight).
+				Bold(true)
 
 	dimSelectedStyle = lipgloss.NewStyle().
 				Foreground(muted)

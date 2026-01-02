@@ -6,10 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
+	"github.com/andyrewlee/perch/data"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/andyrewlee/perch/data"
 )
 
 // Panel represents which panel is currently focused
@@ -29,21 +28,12 @@ type Model struct {
 	// Panel focus
 	focus Panel
 
-	// Town data and renderer
-	town             Town
-	overviewRenderer *OverviewRenderer
+	// Data store
+	store    *data.Store
+	snapshot *data.Snapshot
 
-	// Placeholder content for panels (will be replaced by data layer)
-	sidebarContent string
-	detailsContent string
-
-	// Selection state for lists
-	sidebarIndex   int
-	sidebarItems   []string // Items in sidebar list
-	overviewIndex  int      // Selected rig in overview
-
-	// Keymap for vim-style navigation
-	keyMap KeyMap
+	// Sidebar state
+	sidebar *SidebarState
 
 	// Ready indicates the terminal size is known
 	ready bool
@@ -51,10 +41,6 @@ type Model struct {
 	// Help overlay state
 	showHelp bool
 	firstRun bool
-
-	// Data layer
-	store  *data.Store
-	loader *data.Loader
 
 	// Actions
 	actionRunner  *ActionRunner
@@ -78,25 +64,35 @@ const DefaultTownRoot = "/Users/andrewlee/gt"
 // DefaultRefreshInterval is how often to auto-refresh data.
 const DefaultRefreshInterval = 10 * time.Second
 
-// New creates a new Model
+// refreshMsg signals that data has been refreshed
+type refreshMsg struct {
+	snapshot *data.Snapshot
+	err      error
+}
+
+// tickMsg triggers periodic refresh
+type tickMsg time.Time
+
+// New creates a new Model with the default town root.
 func New() Model {
-	town := MockTown()
-	km := DefaultKeyMap()
+	return NewWithTownRoot(DefaultTownRoot)
+}
+
+// NewWithTownRoot creates a new Model with a custom town root.
+func NewWithTownRoot(townRoot string) Model {
+	store := data.NewStore(townRoot)
+	store.RefreshInterval = 5 * time.Second
+
 	return Model{
-		focus:            PanelOverview,
-		town:             town,
-		overviewRenderer: NewOverviewRenderer(town),
-		sidebarContent:   "Sidebar",
-		detailsContent:   "Details",
-		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
-		keyMap:           km,
-		actionRunner:     NewActionRunner(DefaultTownRoot),
-		loader:           data.NewLoader(DefaultTownRoot),
-		refreshInterval:  DefaultRefreshInterval,
+		focus:           PanelSidebar,
+		store:           store,
+		sidebar:         NewSidebarState(),
+		actionRunner:    NewActionRunner(townRoot),
+		refreshInterval: DefaultRefreshInterval,
 	}
 }
 
-// NewFirstRun creates a new Model with help overlay shown (for first-time users)
+// NewFirstRun creates a new Model with help overlay shown (for first-time users).
 func NewFirstRun() Model {
 	m := New()
 	m.firstRun = true
@@ -104,69 +100,44 @@ func NewFirstRun() Model {
 	return m
 }
 
-// NewWithTown creates a new Model with the given town data
-func NewWithTown(town Town) Model {
-	km := DefaultKeyMap()
-	return Model{
-		focus:            PanelOverview,
-		town:             town,
-		overviewRenderer: NewOverviewRenderer(town),
-		sidebarContent:   "Sidebar",
-		detailsContent:   "Details",
-		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
-		keyMap:           km,
-		actionRunner:     NewActionRunner(DefaultTownRoot),
-		loader:           data.NewLoader(DefaultTownRoot),
-		refreshInterval:  DefaultRefreshInterval,
-	}
-}
-
-// NewWithStore creates a new Model with a data store for live data.
+// NewWithStore creates a new Model with a provided data store.
 func NewWithStore(store *data.Store, townRoot string) Model {
-	town := MockTown() // Will be replaced by store data on first refresh
-	km := DefaultKeyMap()
 	return Model{
-		focus:            PanelOverview,
-		town:             town,
-		overviewRenderer: NewOverviewRenderer(town),
-		sidebarContent:   "Sidebar",
-		detailsContent:   "Details",
-		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
-		keyMap:           km,
-		store:            store,
-		actionRunner:     NewActionRunner(townRoot),
-		loader:           data.NewLoader(townRoot),
-		refreshInterval:  DefaultRefreshInterval,
+		focus:           PanelSidebar,
+		store:           store,
+		sidebar:         NewSidebarState(),
+		actionRunner:    NewActionRunner(townRoot),
+		refreshInterval: DefaultRefreshInterval,
 	}
 }
 
 // Message types for async operations
-type refreshCompleteMsg struct {
-	snapshot *data.Snapshot
-	err      error
-}
-
 type actionCompleteMsg struct {
 	action ActionType
 	target string
 	err    error
 }
 
-// tickMsg is sent periodically to trigger auto-refresh
-type tickMsg time.Time
-
 type statusExpiredMsg struct{}
 
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
-	// Start tick loop and trigger initial refresh
 	return tea.Batch(
+		m.loadData,
 		m.tickCmd(),
-		m.refreshCmd(),
 	)
 }
 
-// tickCmd creates a command that sends a tickMsg after the refresh interval.
+// loadData loads data from the store
+func (m Model) loadData() tea.Msg {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	snap := m.store.Refresh(ctx)
+	return refreshMsg{snapshot: snap, err: nil}
+}
+
+// tickCmd creates a tick command for periodic refresh
 func (m Model) tickCmd() tea.Cmd {
 	if m.refreshInterval <= 0 {
 		return nil
@@ -174,21 +145,6 @@ func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
-}
-
-// refreshCmd creates a command that refreshes data from the town.
-func (m Model) refreshCmd() tea.Cmd {
-	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		if m.loader == nil {
-			return refreshCompleteMsg{err: nil}
-		}
-
-		snap := m.loader.LoadAll(ctx)
-		return refreshCompleteMsg{snapshot: snap}
-	}
 }
 
 // actionCmd creates a command that executes an action.
@@ -222,100 +178,15 @@ func statusExpireCmd(duration time.Duration) tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// If help is showing, any key dismisses it
-		if m.showHelp {
-			m.showHelp = false
-			return m, nil
-		}
-
-		// Handle confirmation dialog first
-		if m.confirmDialog != nil {
-			return m.handleConfirmKey(msg)
-		}
-
-		// Handle keybindings (vim-style + action keys)
-		switch {
-		case key.Matches(msg, m.keyMap.Quit):
-			return m, tea.Quit
-
-		case key.Matches(msg, m.keyMap.Help):
-			m.showHelp = true
-
-		case key.Matches(msg, m.keyMap.NextPanel):
-			m.focus = (m.focus + 1) % 3
-
-		case key.Matches(msg, m.keyMap.PrevPanel):
-			m.focus = (m.focus + 2) % 3
-
-		case key.Matches(msg, m.keyMap.Left):
-			m.movePanelLeft()
-
-		case key.Matches(msg, m.keyMap.Right):
-			m.movePanelRight()
-
-		case key.Matches(msg, m.keyMap.Up):
-			m.moveUp()
-
-		case key.Matches(msg, m.keyMap.Down):
-			m.moveDown()
-
-		case key.Matches(msg, m.keyMap.Select):
-			m.handleSelect()
-
-		case key.Matches(msg, m.keyMap.Refresh):
-			m.isRefreshing = true
-			m.setStatus("Refreshing data...", false)
-			return m, m.refreshCmd()
-
-		// Action keys (boot, shutdown, logs)
-		case msg.String() == "b":
-			// Boot selected rig
-			if m.selectedRig == "" {
-				m.setStatus("No rig selected. Use j/k to select a rig.", true)
-				return m, statusExpireCmd(3 * time.Second)
-			}
-			m.setStatus("Booting rig "+m.selectedRig+"...", false)
-			return m, m.actionCmd(ActionBootRig, m.selectedRig)
-
-		case msg.String() == "s":
-			// Shutdown selected rig (requires confirmation)
-			if m.selectedRig == "" {
-				m.setStatus("No rig selected. Use j/k to select a rig.", true)
-				return m, statusExpireCmd(3 * time.Second)
-			}
-			m.confirmDialog = &ConfirmDialog{
-				Title:   "Confirm Shutdown",
-				Message: "Shutdown rig '" + m.selectedRig + "'? This will stop all agents. (y/n)",
-				Action:  ActionShutdownRig,
-				Target:  m.selectedRig,
-			}
-			return m, nil
-
-		case msg.String() == "o":
-			// Open logs for selected agent
-			if m.selectedAgent == "" {
-				m.setStatus("No agent selected. Use j/k to select an agent.", true)
-				return m, statusExpireCmd(3 * time.Second)
-			}
-			m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
-			return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
-		}
+		return m.handleKeyMsg(msg)
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
+		return m, nil
 
-	case tickMsg:
-		// Auto-refresh on tick, schedule next tick
-		if !m.isRefreshing {
-			m.isRefreshing = true
-			return m, tea.Batch(m.tickCmd(), m.refreshCmd())
-		}
-		// Already refreshing, just schedule next tick
-		return m, m.tickCmd()
-
-	case refreshCompleteMsg:
+	case refreshMsg:
 		m.isRefreshing = false
 		m.lastRefresh = time.Now()
 
@@ -324,17 +195,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setStatus("Refresh failed: "+msg.err.Error(), true)
 			return m, statusExpireCmd(5 * time.Second)
 		}
-		if msg.snapshot != nil {
-			m.updateFromSnapshot(msg.snapshot)
-			if msg.snapshot.HasErrors() {
-				m.errorCount = len(msg.snapshot.Errors)
-				m.setStatus("Refreshed with some errors", true)
-			} else {
-				m.errorCount = 0
-				m.setStatus("Data refreshed", false)
-			}
+
+		m.snapshot = msg.snapshot
+		m.sidebar.UpdateFromSnapshot(msg.snapshot)
+
+		// Set default selection if none
+		if m.selectedRig == "" && msg.snapshot != nil && msg.snapshot.Town != nil && len(msg.snapshot.Town.Rigs) > 0 {
+			m.selectedRig = msg.snapshot.Town.Rigs[0].Name
 		}
-		return m, statusExpireCmd(3 * time.Second)
+
+		if msg.snapshot != nil && msg.snapshot.HasErrors() {
+			m.errorCount = len(msg.snapshot.Errors)
+		} else {
+			m.errorCount = 0
+		}
+		return m, nil
+
+	case tickMsg:
+		// Auto-refresh on tick, schedule next tick
+		if !m.isRefreshing {
+			m.isRefreshing = true
+			return m, tea.Batch(m.tickCmd(), m.loadData)
+		}
+		// Already refreshing, just schedule next tick
+		return m, m.tickCmd()
 
 	case actionCompleteMsg:
 		return m.handleActionComplete(msg)
@@ -346,78 +230,120 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// movePanelLeft moves focus to the left panel
-func (m *Model) movePanelLeft() {
-	switch m.focus {
-	case PanelDetails:
-		m.focus = PanelSidebar
-	case PanelSidebar:
-		m.focus = PanelOverview
+func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If help is showing, any key dismisses it
+	if m.showHelp {
+		m.showHelp = false
+		return m, nil
 	}
-}
 
-// movePanelRight moves focus to the right panel
-func (m *Model) movePanelRight() {
-	switch m.focus {
-	case PanelOverview:
-		m.focus = PanelSidebar
-	case PanelSidebar:
-		m.focus = PanelDetails
+	// Handle confirmation dialog first
+	if m.confirmDialog != nil {
+		return m.handleConfirmKey(msg)
 	}
-}
 
-// moveUp handles up navigation in the current panel
-func (m *Model) moveUp() {
-	switch m.focus {
-	case PanelOverview:
-		if m.overviewIndex > 0 {
-			m.overviewIndex--
-		}
-		// Update selected rig
-		if m.overviewIndex < len(m.town.Rigs) {
-			m.selectedRig = m.town.Rigs[m.overviewIndex].Name
-		}
-	case PanelSidebar:
-		if m.sidebarIndex > 0 {
-			m.sidebarIndex--
-		}
-	}
-}
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
 
-// moveDown handles down navigation in the current panel
-func (m *Model) moveDown() {
-	switch m.focus {
-	case PanelOverview:
-		if m.overviewIndex < len(m.town.Rigs)-1 {
-			m.overviewIndex++
-		}
-		// Update selected rig
-		if m.overviewIndex < len(m.town.Rigs) {
-			m.selectedRig = m.town.Rigs[m.overviewIndex].Name
-		}
-	case PanelSidebar:
-		if m.sidebarIndex < len(m.sidebarItems)-1 {
-			m.sidebarIndex++
-		}
-	}
-}
+	case "?":
+		m.showHelp = true
+		return m, nil
 
-// handleSelect handles the select action
-func (m *Model) handleSelect() {
-	switch m.focus {
-	case PanelSidebar:
-		// Update details based on selected sidebar item
-		if m.sidebarIndex < len(m.sidebarItems) {
-			m.detailsContent = "Selected: " + m.sidebarItems[m.sidebarIndex]
+	case "tab":
+		m.focus = (m.focus + 1) % 3
+		return m, nil
+
+	case "shift+tab":
+		m.focus = (m.focus + 2) % 3
+		return m, nil
+
+	case "r":
+		// Manual refresh
+		m.isRefreshing = true
+		m.setStatus("Refreshing data...", false)
+		return m, m.loadData
+
+	case "b":
+		// Boot selected rig
+		if m.selectedRig == "" {
+			m.setStatus("No rig selected. Use j/k to select a rig.", true)
+			return m, statusExpireCmd(3 * time.Second)
 		}
-	case PanelOverview:
-		// Update details based on selected rig
-		if m.overviewIndex < len(m.town.Rigs) {
-			rig := m.town.Rigs[m.overviewIndex]
-			m.detailsContent = "Rig: " + rig.Name + "\nAgents: " + string(rune('0'+len(rig.Agents)))
-			m.selectedRig = rig.Name
+		m.setStatus("Booting rig "+m.selectedRig+"...", false)
+		return m, m.actionCmd(ActionBootRig, m.selectedRig)
+
+	case "s":
+		// Shutdown selected rig (requires confirmation)
+		if m.selectedRig == "" {
+			m.setStatus("No rig selected. Use j/k to select a rig.", true)
+			return m, statusExpireCmd(3 * time.Second)
 		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Shutdown",
+			Message: "Shutdown rig '" + m.selectedRig + "'? This will stop all agents. (y/n)",
+			Action:  ActionShutdownRig,
+			Target:  m.selectedRig,
+		}
+		return m, nil
+
+	case "o":
+		// Open logs for selected agent
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
+		return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
+
+	// Sidebar navigation (only when sidebar focused)
+	case "j", "down":
+		if m.focus == PanelSidebar {
+			m.sidebar.SelectNext()
+		}
+		return m, nil
+
+	case "k", "up":
+		if m.focus == PanelSidebar {
+			m.sidebar.SelectPrev()
+		}
+		return m, nil
+
+	case "h", "left":
+		if m.focus == PanelSidebar {
+			m.sidebar.PrevSection()
+		}
+		return m, nil
+
+	case "l", "right":
+		if m.focus == PanelSidebar {
+			m.sidebar.NextSection()
+		}
+		return m, nil
+
+	case "1":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionConvoys
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
+	case "2":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionMergeQueue
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
+	case "3":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionAgents
+			m.sidebar.Selection = 0
+		}
+		return m, nil
 	}
+
+	return m, nil
 }
 
 // handleConfirmKey handles key presses when a confirmation dialog is shown.
@@ -449,7 +375,7 @@ func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) 
 	// Auto-refresh after successful action
 	cmds := []tea.Cmd{
 		statusExpireCmd(3 * time.Second),
-		m.refreshCmd(),
+		m.loadData,
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -474,62 +400,6 @@ func actionName(action ActionType) string {
 	default:
 		return "Action"
 	}
-}
-
-// updateFromSnapshot updates the model's town data from a snapshot.
-func (m *Model) updateFromSnapshot(snap *data.Snapshot) {
-	if snap.Town == nil {
-		return
-	}
-
-	// Convert data.Rig to tui.Rig
-	var rigs []Rig
-	for _, dr := range snap.Town.Rigs {
-		rig := Rig{Name: dr.Name}
-
-		// Add agents from the rig
-		for _, da := range dr.Agents {
-			agent := Agent{
-				Name:   da.Name,
-				Type:   agentTypeFromRole(da.Role),
-				Status: agentStatusFromRunning(da.Running, da.HasWork),
-			}
-			rig.Agents = append(rig.Agents, agent)
-		}
-
-		rigs = append(rigs, rig)
-	}
-
-	m.town = Town{Rigs: rigs}
-	m.overviewRenderer = NewOverviewRenderer(m.town)
-
-	// Set default selection if none
-	if m.selectedRig == "" && len(rigs) > 0 {
-		m.selectedRig = rigs[0].Name
-	}
-}
-
-// agentTypeFromRole converts a role string to AgentType.
-func agentTypeFromRole(role string) AgentType {
-	switch role {
-	case "witness":
-		return AgentWitness
-	case "refinery":
-		return AgentRefinery
-	default:
-		return AgentPolecat
-	}
-}
-
-// agentStatusFromRunning determines agent status from running state.
-func agentStatusFromRunning(running, hasWork bool) AgentStatus {
-	if !running {
-		return StatusIdle
-	}
-	if hasWork {
-		return StatusActive
-	}
-	return StatusIdle
 }
 
 // View implements tea.Model
@@ -566,8 +436,8 @@ func (m Model) renderLayout() string {
 
 	// Render panels
 	overview := m.renderOverview(m.width, overviewHeight)
-	sidebar := m.renderSidebar(sidebarWidth, bodyHeight)
-	details := m.renderDetails(detailsWidth, bodyHeight)
+	sidebar := RenderSidebar(m.sidebar, sidebarWidth, bodyHeight, m.focus == PanelSidebar)
+	details := RenderDetails(m.sidebar, m.snapshot, detailsWidth, bodyHeight, m.focus == PanelDetails)
 	footer := m.renderFooter()
 
 	// Combine sidebar and details horizontally
@@ -591,19 +461,7 @@ func (m Model) renderOverview(width, height int) string {
 	}
 
 	title := titleStyle.Render("Town Overview")
-
-	// Use the overview renderer to generate the town map
-	var content string
-	if m.overviewRenderer != nil {
-		// Reserve space for title
-		mapHeight := innerHeight - 2
-		if mapHeight < 1 {
-			mapHeight = 1
-		}
-		content = m.overviewRenderer.Render(innerWidth, mapHeight)
-	} else {
-		content = mutedStyle.Render("No data")
-	}
+	content := m.buildOverviewContent()
 
 	// Pad content to fill space
 	lines := strings.Split(content, "\n")
@@ -628,90 +486,32 @@ func (m Model) renderOverview(width, height int) string {
 	return style.Render(inner)
 }
 
-// renderSidebar renders the sidebar panel
-func (m Model) renderSidebar(width, height int) string {
-	innerWidth := width - 4
-	innerHeight := height - 2
-
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
-	if innerHeight < 1 {
-		innerHeight = 1
+func (m Model) buildOverviewContent() string {
+	if m.snapshot == nil || m.snapshot.Town == nil {
+		return mutedStyle.Render("Loading...")
 	}
 
-	title := titleStyle.Render("Sidebar")
-
-	// Render sidebar items with selection
+	town := m.snapshot.Town
 	var lines []string
-	for i, item := range m.sidebarItems {
-		line := item
-		if i == m.sidebarIndex && m.focus == PanelSidebar {
-			// Highlighted selection
-			line = selectedItemStyle.Render("> " + item)
-		} else if i == m.sidebarIndex {
-			// Selected but not focused
-			line = dimSelectedStyle.Render("> " + item)
-		} else {
-			line = "  " + item
-		}
-		lines = append(lines, line)
-	}
 
-	// Pad remaining lines
-	for len(lines) < innerHeight-1 {
+	lines = append(lines, headerStyle.Render(town.Name))
+	lines = append(lines, mutedStyle.Render(town.Location))
+	lines = append(lines, "")
+
+	// Summary stats
+	s := town.Summary
+	lines = append(lines, fmt.Sprintf("Rigs: %d  Polecats: %d  Crews: %d",
+		s.RigCount, s.PolecatCount, s.CrewCount))
+	lines = append(lines, fmt.Sprintf("Witnesses: %d  Refineries: %d  Active Hooks: %d",
+		s.WitnessCount, s.RefineryCount, s.ActiveHooks))
+
+	// Errors if any
+	if m.snapshot.HasErrors() {
 		lines = append(lines, "")
-	}
-	if len(lines) > innerHeight-1 {
-		lines = lines[:innerHeight-1]
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("(%d load errors)", len(m.snapshot.Errors))))
 	}
 
-	content := strings.Join(lines, "\n")
-	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
-
-	style := sidebarStyle.
-		Width(innerWidth).
-		Height(innerHeight)
-
-	if m.focus == PanelSidebar {
-		style = style.BorderForeground(highlight)
-	}
-
-	return style.Render(inner)
-}
-
-// renderDetails renders the details panel
-func (m Model) renderDetails(width, height int) string {
-	innerWidth := width - 4
-	innerHeight := height - 2
-
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
-	if innerHeight < 1 {
-		innerHeight = 1
-	}
-
-	title := titleStyle.Render("Details")
-	content := m.detailsContent
-
-	lines := strings.Split(content, "\n")
-	for len(lines) < innerHeight {
-		lines = append(lines, "")
-	}
-	content = strings.Join(lines[:innerHeight], "\n")
-
-	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
-
-	style := detailsStyle.
-		Width(innerWidth).
-		Height(innerHeight)
-
-	if m.focus == PanelDetails {
-		style = style.BorderForeground(highlight)
-	}
-
-	return style.Render(inner)
+	return strings.Join(lines, "\n")
 }
 
 // renderFooter renders the footer with HUD indicators, status message, and help
@@ -730,8 +530,14 @@ func (m Model) renderFooter() string {
 	} else if m.confirmDialog != nil {
 		rightSide = confirmStyle.Render(m.confirmDialog.Message)
 	} else {
-		// Default help text with vim keys
-		rightSide = mutedStyle.Render("h/l: panels | j/k: nav | r: refresh | b: boot | s: stop | ?: help | q: quit")
+		// Context-aware help
+		var helpItems []string
+		switch m.focus {
+		case PanelSidebar:
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-3: jump")
+		}
+		helpItems = append(helpItems, "r: refresh", "b: boot", "s: stop", "o: logs", "?: help", "q: quit")
+		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
 	// Calculate spacing between HUD and right side
@@ -854,11 +660,11 @@ func (m Model) renderHelpOverlay() string {
 		"",
 		helpHeaderStyle.Render("Keymap"),
 		"",
-		helpKeyStyle.Render("h/l") + "        Panel left/right",
+		helpKeyStyle.Render("h/l") + "        Panel left/right, section switch",
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("enter") + "      Select item",
+		helpKeyStyle.Render("1-3") + "        Jump to section",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",
@@ -907,4 +713,27 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// agentTypeFromRole converts a role string to AgentType.
+func agentTypeFromRole(role string) AgentType {
+	switch role {
+	case "witness":
+		return AgentWitness
+	case "refinery":
+		return AgentRefinery
+	default:
+		return AgentPolecat
+	}
+}
+
+// agentStatusFromRunning determines agent status from running state.
+func agentStatusFromRunning(running, hasWork bool) AgentStatus {
+	if !running {
+		return StatusIdle
+	}
+	if hasWork {
+		return StatusActive
+	}
+	return StatusIdle
 }

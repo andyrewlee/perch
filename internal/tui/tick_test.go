@@ -38,11 +38,10 @@ func TestNewModelHasRefreshInterval(t *testing.T) {
 	}
 }
 
-func TestNewWithTownHasRefreshInterval(t *testing.T) {
-	town := MockTown()
-	m := NewWithTown(town)
+func TestNewWithTownRootHasRefreshInterval(t *testing.T) {
+	m := NewWithTownRoot("/tmp/test-town")
 	if m.refreshInterval != DefaultRefreshInterval {
-		t.Errorf("NewWithTown model refreshInterval = %v, want %v", m.refreshInterval, DefaultRefreshInterval)
+		t.Errorf("NewWithTownRoot model refreshInterval = %v, want %v", m.refreshInterval, DefaultRefreshInterval)
 	}
 }
 
@@ -80,19 +79,19 @@ func TestTickMsgWhileRefreshingOnlySchedulesTick(t *testing.T) {
 	}
 }
 
-func TestRefreshCompleteUpdatesState(t *testing.T) {
+func TestRefreshMsgUpdatesState(t *testing.T) {
 	m := New()
 	m.ready = true
 	m.isRefreshing = true
 
-	updated, _ := m.Update(refreshCompleteMsg{err: nil, snapshot: nil})
+	updated, _ := m.Update(refreshMsg{err: nil, snapshot: nil})
 	model := updated.(Model)
 
 	if model.isRefreshing {
-		t.Errorf("refreshCompleteMsg should set isRefreshing to false")
+		t.Errorf("refreshMsg should set isRefreshing to false")
 	}
 	if model.lastRefresh.IsZero() {
-		t.Errorf("refreshCompleteMsg should update lastRefresh")
+		t.Errorf("refreshMsg should update lastRefresh")
 	}
 }
 
