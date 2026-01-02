@@ -34,6 +34,10 @@ type Model struct {
 
 	// Ready indicates the terminal size is known
 	ready bool
+
+	// Help overlay state
+	showHelp bool
+	firstRun bool
 }
 
 // New creates a new Model
@@ -46,6 +50,14 @@ func New() Model {
 		sidebarContent:   "Sidebar",
 		detailsContent:   "Details",
 	}
+}
+
+// NewFirstRun creates a new Model with help overlay shown (for first-time users)
+func NewFirstRun() Model {
+	m := New()
+	m.firstRun = true
+	m.showHelp = true
+	return m
 }
 
 // NewWithTown creates a new Model with the given town data
@@ -68,9 +80,17 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If help is showing, any key dismisses it
+		if m.showHelp {
+			m.showHelp = false
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = true
 		case "tab":
 			m.focus = (m.focus + 1) % 3
 		case "shift+tab":
@@ -90,6 +110,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	if !m.ready {
 		return "Initializing..."
+	}
+
+	if m.showHelp {
+		return m.renderHelpOverlay()
 	}
 
 	return m.renderLayout()
@@ -248,6 +272,103 @@ func (m Model) renderDetails(width, height int) string {
 
 // renderFooter renders the footer
 func (m Model) renderFooter() string {
-	help := mutedStyle.Render("tab: switch panel | q: quit")
+	help := mutedStyle.Render("tab: switch panel | ?: help | q: quit")
 	return footerStyle.Width(m.width).Render(help)
+}
+
+// renderHelpOverlay renders the help/onboarding overlay
+func (m Model) renderHelpOverlay() string {
+	// Calculate overlay dimensions (80% of screen, centered)
+	overlayWidth := m.width * 80 / 100
+	overlayHeight := m.height * 80 / 100
+	if overlayWidth < 60 {
+		overlayWidth = min(60, m.width-4)
+	}
+	if overlayHeight < 20 {
+		overlayHeight = min(20, m.height-4)
+	}
+
+	// Help content
+	title := helpTitleStyle.Render("Gas Town Dashboard")
+
+	welcomeMsg := ""
+	if m.firstRun {
+		welcomeMsg = helpSectionStyle.Render("Welcome! Here's how Gas Town works:\n")
+	}
+
+	concepts := []string{
+		helpHeaderStyle.Render("Core Concepts"),
+		"",
+		helpKeyStyle.Render("Rigs") + "       Project containers with their own workers",
+		"            Each rig has polecats, a witness, and a refinery",
+		"",
+		helpKeyStyle.Render("Polecats") + "   Worker agents that execute tasks",
+		"            Each has its own git worktree for isolation",
+		"",
+		helpKeyStyle.Render("Witness") + "    Per-rig manager that monitors polecat health",
+		"            Nudges stuck workers, handles cleanup",
+		"",
+		helpKeyStyle.Render("Refinery") + "   Merge queue processor for the rig",
+		"            Processes completed work from polecats",
+		"",
+		helpKeyStyle.Render("Convoys") + "    Groups of related work items",
+		"            Track progress across multiple beads",
+		"",
+		helpKeyStyle.Render("Hooks") + "      Work assignment mechanism",
+		"            When work is hooked, the agent executes it",
+		"",
+		helpKeyStyle.Render("Beads") + "      Issue tracking system (like tickets)",
+		"            Track tasks, bugs, and features",
+	}
+
+	keymap := []string{
+		"",
+		helpHeaderStyle.Render("Keymap"),
+		"",
+		helpKeyStyle.Render("tab") + "        Next panel",
+		helpKeyStyle.Render("shift+tab") + "  Previous panel",
+		helpKeyStyle.Render("?") + "          Show this help",
+		helpKeyStyle.Render("q") + "          Quit",
+	}
+
+	dismissMsg := "\n" + mutedStyle.Render("Press any key to dismiss")
+
+	// Combine content
+	content := welcomeMsg +
+		strings.Join(concepts, "\n") +
+		strings.Join(keymap, "\n") +
+		dismissMsg
+
+	// Build the overlay box
+	innerWidth := overlayWidth - 4
+	innerHeight := overlayHeight - 2
+
+	// Truncate content if needed
+	lines := strings.Split(content, "\n")
+	if len(lines) > innerHeight {
+		lines = lines[:innerHeight-1]
+		lines = append(lines, mutedStyle.Render("... (press any key)"))
+	}
+	for len(lines) < innerHeight {
+		lines = append(lines, "")
+	}
+	content = strings.Join(lines, "\n")
+
+	inner := lipgloss.JoinVertical(lipgloss.Left, title, "", content)
+
+	overlay := helpOverlayStyle.
+		Width(innerWidth).
+		Height(innerHeight).
+		Render(inner)
+
+	// Center the overlay
+	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, overlay)
+}
+
+// min returns the smaller of two ints
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }

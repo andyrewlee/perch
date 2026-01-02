@@ -43,3 +43,30 @@ var (
 	mutedStyle = lipgloss.NewStyle().
 			Foreground(muted)
 )
+
+// Help overlay styles
+var (
+	helpOverlayStyle = lipgloss.NewStyle().
+				BorderStyle(lipgloss.DoubleBorder()).
+				BorderForeground(highlight).
+				Padding(1, 2).
+				Background(lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#1A1A1A"})
+
+	helpTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(highlight).
+			MarginBottom(1)
+
+	helpHeaderStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(text).
+			Underline(true)
+
+	helpKeyStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(highlight)
+
+	helpSectionStyle = lipgloss.NewStyle().
+				Foreground(text).
+				Italic(true)
+)
