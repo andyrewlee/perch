@@ -42,6 +42,14 @@ var (
 
 	mutedStyle = lipgloss.NewStyle().
 			Foreground(muted)
+
+	// Selection styles
+	selectedItemStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(highlight)
+
+	dimSelectedStyle = lipgloss.NewStyle().
+				Foreground(muted)
 )
 
 // Help overlay styles

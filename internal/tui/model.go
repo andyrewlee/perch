@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/andyrewlee/perch/data"
@@ -35,6 +36,14 @@ type Model struct {
 	sidebarContent string
 	detailsContent string
 
+	// Selection state for lists
+	sidebarIndex   int
+	sidebarItems   []string // Items in sidebar list
+	overviewIndex  int      // Selected rig in overview
+
+	// Keymap for vim-style navigation
+	keyMap KeyMap
+
 	// Ready indicates the terminal size is known
 	ready bool
 
@@ -62,12 +71,15 @@ const DefaultTownRoot = "/Users/andrewlee/gt"
 // New creates a new Model
 func New() Model {
 	town := MockTown()
+	km := DefaultKeyMap()
 	return Model{
 		focus:            PanelOverview,
 		town:             town,
 		overviewRenderer: NewOverviewRenderer(town),
 		sidebarContent:   "Sidebar",
 		detailsContent:   "Details",
+		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
+		keyMap:           km,
 		actionRunner:     NewActionRunner(DefaultTownRoot),
 		loader:           data.NewLoader(DefaultTownRoot),
 	}
@@ -83,12 +95,15 @@ func NewFirstRun() Model {
 
 // NewWithTown creates a new Model with the given town data
 func NewWithTown(town Town) Model {
+	km := DefaultKeyMap()
 	return Model{
 		focus:            PanelOverview,
 		town:             town,
 		overviewRenderer: NewOverviewRenderer(town),
 		sidebarContent:   "Sidebar",
 		detailsContent:   "Details",
+		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
+		keyMap:           km,
 		actionRunner:     NewActionRunner(DefaultTownRoot),
 		loader:           data.NewLoader(DefaultTownRoot),
 	}
@@ -97,12 +112,15 @@ func NewWithTown(town Town) Model {
 // NewWithStore creates a new Model with a data store for live data.
 func NewWithStore(store *data.Store, townRoot string) Model {
 	town := MockTown() // Will be replaced by store data on first refresh
+	km := DefaultKeyMap()
 	return Model{
 		focus:            PanelOverview,
 		town:             town,
 		overviewRenderer: NewOverviewRenderer(town),
 		sidebarContent:   "Sidebar",
 		detailsContent:   "Details",
+		sidebarItems:     []string{"Convoys", "Merge Queue", "Agents"},
+		keyMap:           km,
 		store:            store,
 		actionRunner:     NewActionRunner(townRoot),
 		loader:           data.NewLoader(townRoot),
@@ -186,35 +204,53 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleConfirmKey(msg)
 		}
 
-		switch msg.String() {
-		case "q", "ctrl+c":
+		// Handle keybindings (vim-style + action keys)
+		switch {
+		case key.Matches(msg, m.keyMap.Quit):
 			return m, tea.Quit
-		case "?":
+
+		case key.Matches(msg, m.keyMap.Help):
 			m.showHelp = true
-		case "tab":
+
+		case key.Matches(msg, m.keyMap.NextPanel):
 			m.focus = (m.focus + 1) % 3
-		case "shift+tab":
+
+		case key.Matches(msg, m.keyMap.PrevPanel):
 			m.focus = (m.focus + 2) % 3
 
-		// Action keys
-		case "r":
-			// Refresh data
+		case key.Matches(msg, m.keyMap.Left):
+			m.movePanelLeft()
+
+		case key.Matches(msg, m.keyMap.Right):
+			m.movePanelRight()
+
+		case key.Matches(msg, m.keyMap.Up):
+			m.moveUp()
+
+		case key.Matches(msg, m.keyMap.Down):
+			m.moveDown()
+
+		case key.Matches(msg, m.keyMap.Select):
+			m.handleSelect()
+
+		case key.Matches(msg, m.keyMap.Refresh):
 			m.setStatus("Refreshing data...", false)
 			return m, m.refreshCmd()
 
-		case "b":
+		// Action keys (boot, shutdown, logs)
+		case msg.String() == "b":
 			// Boot selected rig
 			if m.selectedRig == "" {
-				m.setStatus("No rig selected. Use arrow keys to select a rig.", true)
+				m.setStatus("No rig selected. Use j/k to select a rig.", true)
 				return m, statusExpireCmd(3 * time.Second)
 			}
 			m.setStatus("Booting rig "+m.selectedRig+"...", false)
 			return m, m.actionCmd(ActionBootRig, m.selectedRig)
 
-		case "s":
+		case msg.String() == "s":
 			// Shutdown selected rig (requires confirmation)
 			if m.selectedRig == "" {
-				m.setStatus("No rig selected. Use arrow keys to select a rig.", true)
+				m.setStatus("No rig selected. Use j/k to select a rig.", true)
 				return m, statusExpireCmd(3 * time.Second)
 			}
 			m.confirmDialog = &ConfirmDialog{
@@ -225,10 +261,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "l":
+		case msg.String() == "o":
 			// Open logs for selected agent
 			if m.selectedAgent == "" {
-				m.setStatus("No agent selected. Use arrow keys to select an agent.", true)
+				m.setStatus("No agent selected. Use j/k to select an agent.", true)
 				return m, statusExpireCmd(3 * time.Second)
 			}
 			m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
@@ -263,6 +299,80 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// movePanelLeft moves focus to the left panel
+func (m *Model) movePanelLeft() {
+	switch m.focus {
+	case PanelDetails:
+		m.focus = PanelSidebar
+	case PanelSidebar:
+		m.focus = PanelOverview
+	}
+}
+
+// movePanelRight moves focus to the right panel
+func (m *Model) movePanelRight() {
+	switch m.focus {
+	case PanelOverview:
+		m.focus = PanelSidebar
+	case PanelSidebar:
+		m.focus = PanelDetails
+	}
+}
+
+// moveUp handles up navigation in the current panel
+func (m *Model) moveUp() {
+	switch m.focus {
+	case PanelOverview:
+		if m.overviewIndex > 0 {
+			m.overviewIndex--
+		}
+		// Update selected rig
+		if m.overviewIndex < len(m.town.Rigs) {
+			m.selectedRig = m.town.Rigs[m.overviewIndex].Name
+		}
+	case PanelSidebar:
+		if m.sidebarIndex > 0 {
+			m.sidebarIndex--
+		}
+	}
+}
+
+// moveDown handles down navigation in the current panel
+func (m *Model) moveDown() {
+	switch m.focus {
+	case PanelOverview:
+		if m.overviewIndex < len(m.town.Rigs)-1 {
+			m.overviewIndex++
+		}
+		// Update selected rig
+		if m.overviewIndex < len(m.town.Rigs) {
+			m.selectedRig = m.town.Rigs[m.overviewIndex].Name
+		}
+	case PanelSidebar:
+		if m.sidebarIndex < len(m.sidebarItems)-1 {
+			m.sidebarIndex++
+		}
+	}
+}
+
+// handleSelect handles the select action
+func (m *Model) handleSelect() {
+	switch m.focus {
+	case PanelSidebar:
+		// Update details based on selected sidebar item
+		if m.sidebarIndex < len(m.sidebarItems) {
+			m.detailsContent = "Selected: " + m.sidebarItems[m.sidebarIndex]
+		}
+	case PanelOverview:
+		// Update details based on selected rig
+		if m.overviewIndex < len(m.town.Rigs) {
+			rig := m.town.Rigs[m.overviewIndex]
+			m.detailsContent = "Rig: " + rig.Name + "\nAgents: " + string(rune('0'+len(rig.Agents)))
+			m.selectedRig = rig.Name
+		}
+	}
 }
 
 // handleConfirmKey handles key presses when a confirmation dialog is shown.
@@ -486,14 +596,32 @@ func (m Model) renderSidebar(width, height int) string {
 	}
 
 	title := titleStyle.Render("Sidebar")
-	content := m.sidebarContent
 
-	lines := strings.Split(content, "\n")
-	for len(lines) < innerHeight {
+	// Render sidebar items with selection
+	var lines []string
+	for i, item := range m.sidebarItems {
+		line := item
+		if i == m.sidebarIndex && m.focus == PanelSidebar {
+			// Highlighted selection
+			line = selectedItemStyle.Render("> " + item)
+		} else if i == m.sidebarIndex {
+			// Selected but not focused
+			line = dimSelectedStyle.Render("> " + item)
+		} else {
+			line = "  " + item
+		}
+		lines = append(lines, line)
+	}
+
+	// Pad remaining lines
+	for len(lines) < innerHeight-1 {
 		lines = append(lines, "")
 	}
-	content = strings.Join(lines[:innerHeight], "\n")
+	if len(lines) > innerHeight-1 {
+		lines = lines[:innerHeight-1]
+	}
 
+	content := strings.Join(lines, "\n")
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
 
 	style := sidebarStyle.
@@ -557,8 +685,8 @@ func (m Model) renderFooter() string {
 		return confirmStyle.Width(m.width).Render(m.confirmDialog.Message)
 	}
 
-	// Default help text with action keys
-	help := mutedStyle.Render("r: refresh | b: boot rig | s: shutdown rig | l: logs | ?: help | tab: switch panel | q: quit")
+	// Default help text with vim keys and action keys
+	help := mutedStyle.Render("h/l: panels | j/k: navigate | r: refresh | b: boot | s: shutdown | o: logs | ?: help | q: quit")
 	return footerStyle.Width(m.width).Render(help)
 }
 
@@ -611,8 +739,15 @@ func (m Model) renderHelpOverlay() string {
 		"",
 		helpHeaderStyle.Render("Keymap"),
 		"",
+		helpKeyStyle.Render("h/l") + "        Panel left/right",
+		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
+		helpKeyStyle.Render("enter") + "      Select item",
+		helpKeyStyle.Render("r") + "          Refresh data",
+		helpKeyStyle.Render("b") + "          Boot selected rig",
+		helpKeyStyle.Render("s") + "          Shutdown selected rig",
+		helpKeyStyle.Render("o") + "          Open logs for agent",
 		helpKeyStyle.Render("?") + "          Show this help",
 		helpKeyStyle.Render("q") + "          Quit",
 	}
