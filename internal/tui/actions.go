@@ -21,6 +21,8 @@ const (
 	ActionOpenLogs
 	ActionAddRig
 	ActionNudgePolecat
+	ActionNudgeRefinery
+	ActionRestartRefinery
 )
 
 // Action represents a user-triggered action with its result.
@@ -121,6 +123,20 @@ func (r *ActionRunner) NudgePolecat(ctx context.Context, rig, worker, branch str
 	return r.runCommand(ctx, "gt", "mail", "send", rig+"/"+worker, "-s", subject, "-m", message)
 }
 
+// NudgeRefinery sends a nudge to the refinery to process waiting work.
+// Runs: gt mail send <rig>/refinery -s "Nudge" -m "Process waiting MRs"
+func (r *ActionRunner) NudgeRefinery(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "mail", "send", rig+"/refinery",
+		"-s", "Nudge: Process queue",
+		"-m", "Dashboard nudge: Please check and process any waiting merge requests.")
+}
+
+// RestartRefinery restarts the refinery agent.
+// Runs: gt agent restart <rig>/refinery
+func (r *ActionRunner) RestartRefinery(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "agent", "restart", rig+"/refinery")
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -168,7 +184,7 @@ type ConfirmDialog struct {
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
-	case ActionShutdownRig, ActionDeleteRig:
+	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery:
 		return true
 	default:
 		return false
