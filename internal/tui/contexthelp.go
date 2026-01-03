@@ -23,7 +23,7 @@ func SectionHelp(section SidebarSection) string {
 func RoleHelp(role string) string {
 	switch role {
 	case "witness":
-		return "Manages polecat lifecycle (spawn, nudge, cleanup)"
+		return "Manages polecat lifecycle (start, nudge, cleanup)"
 	case "refinery":
 		return "Processes merge queue (rebase, merge to main)"
 	case "polecat":
@@ -58,7 +58,7 @@ var RigComponentHelp = struct {
 	MergeQueue string
 	Hooks     string
 }{
-	Polecats:   "Autonomous workers spawned by the witness",
+	Polecats:   "Autonomous workers started by the witness",
 	Crews:      "Human-managed workers (you run sessions)",
 	Witness:    "Manages worker lifecycle automatically",
 	Refinery:   "Merges completed work into main branch",
