@@ -161,3 +161,21 @@ var (
 	killStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FF4500"))
 )
+
+// Operational state banner styles
+var (
+	degradedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF0000")).
+			Background(lipgloss.Color("#330000")).
+			Bold(true).
+			Padding(0, 1)
+
+	mutedBannerStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFCC00")).
+				Bold(true).
+				Padding(0, 1)
+
+	warningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFA500")).
+			Bold(true)
+)

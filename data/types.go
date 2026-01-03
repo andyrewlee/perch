@@ -158,3 +158,49 @@ type LifecycleLog struct {
 	Events   []LifecycleEvent
 	LoadedAt time.Time
 }
+
+// OperationalState represents the overall health and operational status of the town.
+type OperationalState struct {
+	// DegradedMode indicates tmux is unavailable (GT_DEGRADED env var set)
+	DegradedMode bool `json:"degraded_mode"`
+
+	// PatrolMuted indicates the deacon patrol is muted
+	PatrolMuted bool `json:"patrol_muted"`
+
+	// WatchdogHealthy indicates the deacon watchdog is running and healthy
+	WatchdogHealthy bool `json:"watchdog_healthy"`
+
+	// LastDeaconHeartbeat is when the deacon last checked in
+	LastDeaconHeartbeat time.Time `json:"last_deacon_heartbeat,omitempty"`
+
+	// LastWitnessHeartbeat tracks per-rig witness health
+	LastWitnessHeartbeat map[string]time.Time `json:"last_witness_heartbeat,omitempty"`
+
+	// LastRefineryHeartbeat tracks per-rig refinery health
+	LastRefineryHeartbeat map[string]time.Time `json:"last_refinery_heartbeat,omitempty"`
+
+	// Issues contains any detected operational issues
+	Issues []string `json:"issues,omitempty"`
+}
+
+// HasIssues returns true if there are any operational issues.
+func (o *OperationalState) HasIssues() bool {
+	return o.DegradedMode || o.PatrolMuted || !o.WatchdogHealthy || len(o.Issues) > 0
+}
+
+// Summary returns a brief status summary.
+func (o *OperationalState) Summary() string {
+	if o.DegradedMode {
+		return "DEGRADED"
+	}
+	if o.PatrolMuted {
+		return "PATROL MUTED"
+	}
+	if !o.WatchdogHealthy {
+		return "WATCHDOG UNHEALTHY"
+	}
+	if len(o.Issues) > 0 {
+		return "ISSUES DETECTED"
+	}
+	return "HEALTHY"
+}
