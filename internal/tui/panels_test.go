@@ -211,7 +211,11 @@ func TestAgentsPanelPreservesLastKnownAgents(t *testing.T) {
 	snap2 := &data.Snapshot{
 		Town:     nil, // Town failed to load
 		LoadedAt: time.Now(),
-		Errors:   []error{errors.New("connection timeout")},
+		Errors: []data.LoadError{{
+			Source:     "Town Status",
+			Error:      errors.New("connection timeout"),
+			OccurredAt: time.Now(),
+		}},
 	}
 	state.UpdateFromSnapshot(snap2)
 

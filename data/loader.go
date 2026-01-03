@@ -1001,9 +1001,10 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	if len(snap.Convoys) > 0 {
 		statuses, err := l.LoadAllConvoyStatuses(ctx, snap.Convoys)
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("convoy_statuses", "gt convoy status --json", err)
 		} else {
 			snap.ConvoyStatuses = statuses
+			markSuccess("convoy_statuses")
 		}
 	}
 
@@ -1035,9 +1036,10 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		// Load plugins (requires rig names)
 		plugins, err := l.LoadPlugins(ctx, rigNames)
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("plugins", "scan of plugin directories", err)
 		} else {
 			snap.Plugins = plugins
+			markSuccess("plugins")
 		}
 	}
 
