@@ -103,6 +103,118 @@ func TestLoaderIntegration(t *testing.T) {
 	})
 }
 
+func TestEnrichWithHookedBeads(t *testing.T) {
+	// Create a snapshot with mock data
+	snap := &Snapshot{
+		Town: &TownStatus{
+			Name: "test-town",
+			Summary: Summary{
+				ActiveHooks: 0, // Initially 0
+			},
+			Agents: []Agent{
+				{Name: "mayor", Address: "mayor/", HasWork: false},
+			},
+			Rigs: []Rig{
+				{
+					Name: "perch",
+					Hooks: []Hook{
+						{Agent: "perch/ace", Role: "polecat", HasWork: false},
+						{Agent: "perch/nux", Role: "polecat", HasWork: false},
+						{Agent: "perch/slit", Role: "polecat", HasWork: false},
+					},
+					Agents: []Agent{
+						{Name: "witness", Address: "perch/witness", HasWork: false},
+						{Name: "refinery", Address: "perch/refinery", HasWork: false},
+					},
+				},
+			},
+		},
+		HookedIssues: []Issue{
+			{ID: "gt-001", Title: "Task A", Assignee: "perch/polecats/ace"},
+			{ID: "gt-002", Title: "Task B", Assignee: "perch/polecats/slit"},
+		},
+	}
+
+	// Run enrichment
+	snap.EnrichWithHookedBeads()
+
+	// Verify ActiveHooks is updated
+	if snap.Town.Summary.ActiveHooks != 2 {
+		t.Errorf("expected ActiveHooks=2, got %d", snap.Town.Summary.ActiveHooks)
+	}
+
+	// Verify hooks are updated correctly
+	hooks := snap.Town.Rigs[0].Hooks
+	// ace should have work (matched gt-001)
+	if !hooks[0].HasWork {
+		t.Errorf("expected perch/ace hook to have work")
+	}
+	// nux should NOT have work (no matching bead)
+	if hooks[1].HasWork {
+		t.Errorf("expected perch/nux hook to NOT have work")
+	}
+	// slit should have work (matched gt-002)
+	if !hooks[2].HasWork {
+		t.Errorf("expected perch/slit hook to have work")
+	}
+}
+
+func TestEnrichWithHookedBeads_EmptyHooks(t *testing.T) {
+	// Snapshot with no hooked issues
+	snap := &Snapshot{
+		Town: &TownStatus{
+			Summary: Summary{ActiveHooks: 0},
+		},
+		HookedIssues: nil,
+	}
+
+	// Should not panic
+	snap.EnrichWithHookedBeads()
+
+	// ActiveHooks should remain 0
+	if snap.Town.Summary.ActiveHooks != 0 {
+		t.Errorf("expected ActiveHooks=0, got %d", snap.Town.Summary.ActiveHooks)
+	}
+}
+
+func TestEnrichWithHookedBeads_NilTown(t *testing.T) {
+	// Snapshot with nil town
+	snap := &Snapshot{
+		Town: nil,
+		HookedIssues: []Issue{
+			{ID: "gt-001", Title: "Task A", Assignee: "perch/polecats/ace"},
+		},
+	}
+
+	// Should not panic
+	snap.EnrichWithHookedBeads()
+}
+
+func TestSplitAgentAddress(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"perch/ace", []string{"perch", "ace"}},
+		{"perch/polecats/ace", []string{"perch", "polecats/ace"}},
+		{"norig", []string{"norig"}},
+		{"a/b/c/d", []string{"a", "b/c/d"}},
+	}
+
+	for _, tc := range tests {
+		result := splitAgentAddress(tc.input)
+		if len(result) != len(tc.expected) {
+			t.Errorf("splitAgentAddress(%q): expected %v, got %v", tc.input, tc.expected, result)
+			continue
+		}
+		for i := range result {
+			if result[i] != tc.expected[i] {
+				t.Errorf("splitAgentAddress(%q)[%d]: expected %q, got %q", tc.input, i, tc.expected[i], result[i])
+			}
+		}
+	}
+}
+
 func TestStoreRefresh(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

@@ -108,6 +108,7 @@ type Issue struct {
 	Status          string    `json:"status"`
 	Priority        int       `json:"priority"`
 	IssueType       string    `json:"issue_type"`
+	Assignee        string    `json:"assignee"`
 	CreatedAt       time.Time `json:"created_at"`
 	CreatedBy       string    `json:"created_by"`
 	UpdatedAt       time.Time `json:"updated_at"`
