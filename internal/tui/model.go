@@ -897,24 +897,174 @@ func (m Model) buildOverviewContent() string {
 	town := m.snapshot.Town
 	var lines []string
 
-	lines = append(lines, headerStyle.Render(town.Name))
-	lines = append(lines, mutedStyle.Render(town.Location))
+	// Header with last refresh time
+	headerLine := headerStyle.Render(town.Name)
+	if !m.lastRefresh.IsZero() {
+		refreshStr := m.lastRefresh.Format("15:04:05")
+		headerLine += "  " + mutedStyle.Render("updated "+refreshStr)
+	}
+	lines = append(lines, headerLine)
 	lines = append(lines, "")
 
-	// Summary stats
-	s := town.Summary
-	lines = append(lines, fmt.Sprintf("Rigs: %d  Polecats: %d  Crews: %d",
-		s.RigCount, s.PolecatCount, s.CrewCount))
-	lines = append(lines, fmt.Sprintf("Witnesses: %d  Refineries: %d  Active Hooks: %d",
-		s.WitnessCount, s.RefineryCount, s.ActiveHooks))
+	// Compact rig clusters visualization
+	rigLine := m.buildRigClusters()
+	if rigLine != "" {
+		lines = append(lines, rigLine)
+		lines = append(lines, "")
+	}
 
-	// Errors if any
-	if m.snapshot.HasErrors() {
+	// Summary stats in compact form
+	s := town.Summary
+	statsLine := fmt.Sprintf("%d rigs  %d polecats  %d crews  %d hooks active",
+		s.RigCount, s.PolecatCount, s.CrewCount, s.ActiveHooks)
+	lines = append(lines, mutedStyle.Render(statsLine))
+
+	// Top alerts section
+	alerts := m.buildAlerts()
+	if len(alerts) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Alerts"))
+		for _, alert := range alerts {
+			lines = append(lines, alert)
+		}
+	}
+
+	// Errors if any (less prominent now that we have alerts)
+	if m.snapshot.HasErrors() && len(alerts) == 0 {
 		lines = append(lines, "")
 		lines = append(lines, mutedStyle.Render(fmt.Sprintf("(%d load errors)", len(m.snapshot.Errors))))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// buildRigClusters creates a compact visual representation of rig status
+func (m Model) buildRigClusters() string {
+	if m.snapshot == nil || m.snapshot.Town == nil {
+		return ""
+	}
+
+	var clusters []string
+	for _, rig := range m.snapshot.Town.Rigs {
+		cluster := m.renderRigCluster(rig)
+		clusters = append(clusters, cluster)
+	}
+
+	if len(clusters) == 0 {
+		return mutedStyle.Render("No rigs")
+	}
+
+	return strings.Join(clusters, "  ")
+}
+
+// renderRigCluster renders a single rig as a compact status cluster
+func (m Model) renderRigCluster(rig data.Rig) string {
+	// Count agent states
+	var working, idle, attention, stopped int
+	for _, agent := range rig.Agents {
+		if !agent.Running {
+			stopped++
+		} else if agent.UnreadMail > 0 {
+			attention++
+		} else if agent.HasWork {
+			working++
+		} else {
+			idle++
+		}
+	}
+
+	// Build status indicators
+	var indicators []string
+	if working > 0 {
+		indicators = append(indicators, workingStyle.Render(fmt.Sprintf("%d●", working)))
+	}
+	if idle > 0 {
+		indicators = append(indicators, idleStyle.Render(fmt.Sprintf("%d○", idle)))
+	}
+	if attention > 0 {
+		indicators = append(indicators, attentionStyle.Render(fmt.Sprintf("%d!", attention)))
+	}
+	if stopped > 0 {
+		indicators = append(indicators, stoppedStyle.Render(fmt.Sprintf("%d◌", stopped)))
+	}
+
+	// Check merge queue for conflicts
+	if mrs, ok := m.snapshot.MergeQueues[rig.Name]; ok {
+		conflicts := 0
+		for _, mr := range mrs {
+			if mr.HasConflicts || mr.NeedsRebase {
+				conflicts++
+			}
+		}
+		if conflicts > 0 {
+			indicators = append(indicators, conflictStyle.Render(fmt.Sprintf("%d~", conflicts)))
+		}
+	}
+
+	indicatorStr := ""
+	if len(indicators) > 0 {
+		indicatorStr = " " + strings.Join(indicators, " ")
+	}
+
+	return fmt.Sprintf("[%s%s]", rig.Name, indicatorStr)
+}
+
+// buildAlerts generates the top alerts for quick attention
+func (m Model) buildAlerts() []string {
+	var alerts []string
+	maxAlerts := 3 // Limit to keep overview compact
+
+	if m.snapshot == nil || m.snapshot.Town == nil {
+		return alerts
+	}
+
+	// Check for agents needing attention (unread mail)
+	for _, agent := range m.snapshot.Town.Agents {
+		if agent.UnreadMail > 0 && len(alerts) < maxAlerts {
+			alerts = append(alerts, attentionStyle.Render("!")+
+				fmt.Sprintf(" %s has %d unread mail", agent.Name, agent.UnreadMail))
+		}
+	}
+
+	// Check for merge queue issues
+	for rigName, mrs := range m.snapshot.MergeQueues {
+		for _, mr := range mrs {
+			if len(alerts) >= maxAlerts {
+				break
+			}
+			if mr.HasConflicts {
+				alerts = append(alerts, conflictStyle.Render("~")+
+					fmt.Sprintf(" [%s] %s has conflicts", rigName, truncate(mr.Title, 25)))
+			} else if mr.NeedsRebase {
+				alerts = append(alerts, rebaseStyle.Render("~")+
+					fmt.Sprintf(" [%s] %s needs rebase", rigName, truncate(mr.Title, 25)))
+			}
+		}
+	}
+
+	// Check for stopped infrastructure (witness/refinery)
+	for _, rig := range m.snapshot.Town.Rigs {
+		if len(alerts) >= maxAlerts {
+			break
+		}
+		for _, agent := range rig.Agents {
+			if len(alerts) >= maxAlerts {
+				break
+			}
+			if !agent.Running && (agent.Role == "witness" || agent.Role == "refinery") {
+				alerts = append(alerts, stoppedStyle.Render("◌")+
+					fmt.Sprintf(" [%s] %s is stopped", rig.Name, agent.Role))
+			}
+		}
+	}
+
+	// Check for load errors
+	if m.snapshot.HasErrors() && len(alerts) < maxAlerts {
+		alerts = append(alerts, statusErrorStyle.Render("●")+
+			fmt.Sprintf(" %d data load error(s)", len(m.snapshot.Errors)))
+	}
+
+	return alerts
 }
 
 // renderFooter renders the footer with HUD indicators, status message, and help
