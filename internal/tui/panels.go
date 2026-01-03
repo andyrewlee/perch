@@ -12,13 +12,19 @@ import (
 type SidebarSection int
 
 const (
-	SectionConvoys SidebarSection = iota
+	SectionRigs SidebarSection = iota
+	SectionConvoys
 	SectionMergeQueue
 	SectionAgents
 )
 
+// SectionCount is the total number of sidebar sections
+const SectionCount = 4
+
 func (s SidebarSection) String() string {
 	switch s {
+	case SectionRigs:
+		return "Rigs"
 	case SectionConvoys:
 		return "Convoys"
 	case SectionMergeQueue:
@@ -76,12 +82,44 @@ func (a agentItem) Status() string {
 	return "stopped"
 }
 
+// rigItem wraps data.Rig for selection with aggregated counts
+type rigItem struct {
+	r       data.Rig
+	mrCount int // merge request count for this rig
+}
+
+func (r rigItem) ID() string { return r.r.Name }
+func (r rigItem) Label() string {
+	// Show rig name with summary counts: polecats, active hooks
+	activeHooks := 0
+	for _, h := range r.r.Hooks {
+		if h.HasWork {
+			activeHooks++
+		}
+	}
+	return fmt.Sprintf("%s (%dP %dH)", r.r.Name, r.r.PolecatCount, activeHooks)
+}
+func (r rigItem) Status() string {
+	// Count running agents
+	running := 0
+	for _, a := range r.r.Agents {
+		if a.Running {
+			running++
+		}
+	}
+	if running > 0 {
+		return "active"
+	}
+	return "idle"
+}
+
 // SidebarState manages sidebar list selection
 type SidebarState struct {
 	Section   SidebarSection
 	Selection int // Index within current section
 
 	// Cached items for each section
+	Rigs    []rigItem
 	Convoys []convoyItem
 	MRs     []mrItem
 	Agents  []agentItem
@@ -90,7 +128,7 @@ type SidebarState struct {
 // NewSidebarState creates a new sidebar state
 func NewSidebarState() *SidebarState {
 	return &SidebarState{
-		Section:   SectionConvoys,
+		Section:   SectionRigs,
 		Selection: 0,
 	}
 }
@@ -99,6 +137,20 @@ func NewSidebarState() *SidebarState {
 func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	if snap == nil {
 		return
+	}
+
+	// Build MR count per rig first (needed for rig items)
+	mrCounts := make(map[string]int)
+	for rig, mrs := range snap.MergeQueues {
+		mrCounts[rig] = len(mrs)
+	}
+
+	// Update rigs
+	if snap.Town != nil {
+		s.Rigs = make([]rigItem, len(snap.Town.Rigs))
+		for i, r := range snap.Town.Rigs {
+			s.Rigs[i] = rigItem{r: r, mrCount: mrCounts[r.Name]}
+		}
 	}
 
 	// Update convoys
@@ -130,6 +182,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 // CurrentItems returns the items for the current section
 func (s *SidebarState) CurrentItems() []SelectableItem {
 	switch s.Section {
+	case SectionRigs:
+		items := make([]SelectableItem, len(s.Rigs))
+		for i, r := range s.Rigs {
+			items[i] = r
+		}
+		return items
 	case SectionConvoys:
 		items := make([]SelectableItem, len(s.Convoys))
 		for i, c := range s.Convoys {
@@ -163,14 +221,14 @@ func (s *SidebarState) SelectedItem() SelectableItem {
 
 // NextSection moves to the next section
 func (s *SidebarState) NextSection() {
-	s.Section = (s.Section + 1) % 3
+	s.Section = (s.Section + 1) % SectionCount
 	s.Selection = 0
 	s.clampSelection()
 }
 
 // PrevSection moves to the previous section
 func (s *SidebarState) PrevSection() {
-	s.Section = (s.Section + 2) % 3
+	s.Section = (s.Section + SectionCount - 1) % SectionCount
 	s.Selection = 0
 	s.clampSelection()
 }
@@ -213,8 +271,8 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 		innerHeight = 1
 	}
 
-	// Calculate height per section (3 sections)
-	sectionHeight := (innerHeight - 3) / 3 // -3 for headers
+	// Calculate height per section (4 sections)
+	sectionHeight := (innerHeight - SectionCount) / SectionCount // -SectionCount for headers
 	if sectionHeight < 2 {
 		sectionHeight = 2
 	}
@@ -222,7 +280,7 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 	var sections []string
 
 	// Render each section
-	for sec := SectionConvoys; sec <= SectionAgents; sec++ {
+	for sec := SectionRigs; sec <= SectionAgents; sec++ {
 		isActive := state.Section == sec
 		header := renderSectionHeader(sec.String(), isActive)
 		items := getSectionItems(state, sec)
@@ -263,6 +321,12 @@ func renderSectionHeader(name string, active bool) string {
 
 func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 	switch sec {
+	case SectionRigs:
+		items := make([]SelectableItem, len(state.Rigs))
+		for i, r := range state.Rigs {
+			items[i] = r
+		}
+		return items
 	case SectionConvoys:
 		items := make([]SelectableItem, len(state.Convoys))
 		for i, c := range state.Convoys {
@@ -354,6 +418,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 	}
 
 	switch state.Section {
+	case SectionRigs:
+		if state.Selection >= 0 && state.Selection < len(state.Rigs) {
+			return renderRigDetails(state.Rigs[state.Selection], width)
+		}
 	case SectionConvoys:
 		if state.Selection >= 0 && state.Selection < len(state.Convoys) {
 			return renderConvoyDetails(state.Convoys[state.Selection].c, width)
@@ -418,6 +486,56 @@ func renderAgentDetails(a data.Agent, width int) string {
 	if a.UnreadMail > 0 {
 		lines = append(lines, fmt.Sprintf("Mail:    %d unread", a.UnreadMail))
 	}
+
+	return strings.Join(lines, "\n")
+}
+
+func renderRigDetails(r rigItem, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Rig"))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Name:       %s", r.r.Name))
+	lines = append(lines, "")
+
+	// Worker counts
+	lines = append(lines, headerStyle.Render("Workers"))
+	lines = append(lines, fmt.Sprintf("Polecats:   %d", r.r.PolecatCount))
+	lines = append(lines, fmt.Sprintf("Crews:      %d", r.r.CrewCount))
+	lines = append(lines, "")
+
+	// Infrastructure status
+	lines = append(lines, headerStyle.Render("Infrastructure"))
+	witnessStatus := "No"
+	if r.r.HasWitness {
+		witnessStatus = "Yes"
+	}
+	refineryStatus := "No"
+	if r.r.HasRefinery {
+		refineryStatus = "Yes"
+	}
+	lines = append(lines, fmt.Sprintf("Witness:    %s", witnessStatus))
+	lines = append(lines, fmt.Sprintf("Refinery:   %s", refineryStatus))
+	lines = append(lines, fmt.Sprintf("Merge Queue: %d items", r.mrCount))
+	lines = append(lines, "")
+
+	// Hooks status
+	activeHooks := 0
+	for _, h := range r.r.Hooks {
+		if h.HasWork {
+			activeHooks++
+		}
+	}
+	lines = append(lines, headerStyle.Render("Activity"))
+	lines = append(lines, fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), activeHooks))
+
+	// Running agents in this rig
+	running := 0
+	for _, a := range r.r.Agents {
+		if a.Running {
+			running++
+		}
+	}
+	lines = append(lines, fmt.Sprintf("Agents:     %d running", running))
 
 	return strings.Join(lines, "\n")
 }

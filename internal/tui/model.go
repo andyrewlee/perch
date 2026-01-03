@@ -341,42 +341,54 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "j", "down":
 		if m.focus == PanelSidebar {
 			m.sidebar.SelectNext()
+			m.syncSelectedRig()
 		}
 		return m, nil
 
 	case "k", "up":
 		if m.focus == PanelSidebar {
 			m.sidebar.SelectPrev()
+			m.syncSelectedRig()
 		}
 		return m, nil
 
 	case "h", "left":
 		if m.focus == PanelSidebar {
 			m.sidebar.PrevSection()
+			m.syncSelectedRig()
 		}
 		return m, nil
 
 	case "l", "right":
 		if m.focus == PanelSidebar {
 			m.sidebar.NextSection()
+			m.syncSelectedRig()
 		}
 		return m, nil
 
 	case "1":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionRigs
+			m.sidebar.Selection = 0
+			m.syncSelectedRig()
+		}
+		return m, nil
+
+	case "2":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionConvoys
 			m.sidebar.Selection = 0
 		}
 		return m, nil
 
-	case "2":
+	case "3":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionMergeQueue
 			m.sidebar.Selection = 0
 		}
 		return m, nil
 
-	case "3":
+	case "4":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionAgents
 			m.sidebar.Selection = 0
@@ -458,6 +470,15 @@ func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) 
 func (m *Model) setStatus(text string, isError bool) {
 	msg := NewStatusMessage(text, isError, 5*time.Second)
 	m.statusMessage = &msg
+}
+
+// syncSelectedRig updates selectedRig when navigating in the Rigs section.
+func (m *Model) syncSelectedRig() {
+	if m.sidebar.Section == SectionRigs && len(m.sidebar.Rigs) > 0 {
+		if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Rigs) {
+			m.selectedRig = m.sidebar.Rigs[m.sidebar.Selection].r.Name
+		}
+	}
 }
 
 // actionName returns a human-readable name for an action type.
@@ -630,7 +651,7 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-3: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-4: jump")
 		}
 		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
@@ -760,7 +781,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-3") + "        Jump to section",
+		helpKeyStyle.Render("1-4") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
