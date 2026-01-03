@@ -166,23 +166,74 @@ type mailItem struct {
 
 func (m mailItem) ID() string { return m.m.ID }
 func (m mailItem) Label() string {
-	// Use styled badge like agent status
-	badge := mailReadStyle.Render("○")
+	// Read status badge
+	readBadge := mailReadStyle.Render("○")
 	if !m.m.Read {
-		badge = mailUnreadStyle.Render("●")
+		readBadge = mailUnreadStyle.Render("●")
 	}
+
+	// Type badge (short indicator for message type)
+	typeBadge := mailTypeBadge(m.m.Type)
+
 	// Truncate subject for display
 	subject := m.m.Subject
-	if len(subject) > 28 {
-		subject = subject[:25] + "..."
+	maxLen := 24
+	if typeBadge != "" {
+		maxLen = 20 // Make room for type badge
 	}
-	return fmt.Sprintf("%s %s", badge, subject)
+	if len(subject) > maxLen {
+		subject = subject[:maxLen-3] + "..."
+	}
+
+	if typeBadge != "" {
+		return fmt.Sprintf("%s %s %s", readBadge, typeBadge, subject)
+	}
+	return fmt.Sprintf("%s %s", readBadge, subject)
 }
 func (m mailItem) Status() string {
 	if !m.m.Read {
 		return "unread"
 	}
 	return "read"
+}
+
+// mailTypeBadge returns a styled short badge for mail type.
+func mailTypeBadge(mailType string) string {
+	switch mailType {
+	case "MERGE_READY":
+		return mailTypeMergeReadyStyle.Render("[MR]")
+	case "MERGED":
+		return mailTypeMergedStyle.Render("[OK]")
+	case "REWORK_REQUEST", "REWORK":
+		return mailTypeReworkStyle.Render("[RW]")
+	case "HANDOFF":
+		return mailTypeHandoffStyle.Render("[HO]")
+	case "NUDGE":
+		return mailTypeNudgeStyle.Render("[NU]")
+	default:
+		return ""
+	}
+}
+
+// mailTypeLabel returns a human-readable label for mail type.
+func mailTypeLabel(mailType string) string {
+	switch mailType {
+	case "MERGE_READY":
+		return "Merge Ready"
+	case "MERGED":
+		return "Merged"
+	case "REWORK_REQUEST", "REWORK":
+		return "Rework Request"
+	case "HANDOFF":
+		return "Handoff"
+	case "NUDGE":
+		return "Nudge"
+	default:
+		if mailType != "" {
+			return mailType
+		}
+		return "General"
+	}
 }
 
 // lifecycleEventItem wraps data.LifecycleEvent for selection
@@ -963,12 +1014,23 @@ func renderMailDetails(m data.MailMessage, width int) string {
 	}
 
 	lines = append(lines, fmt.Sprintf("Status:  %s %s", readBadge, readText))
+
+	// Message type with styled badge
+	if m.Type != "" {
+		typeBadge := mailTypeBadge(m.Type)
+		typeLabel := mailTypeLabel(m.Type)
+		lines = append(lines, fmt.Sprintf("Type:    %s %s", typeBadge, typeLabel))
+	}
+
 	lines = append(lines, fmt.Sprintf("ID:      %s", m.ID))
 	lines = append(lines, fmt.Sprintf("From:    %s", m.From))
 	lines = append(lines, fmt.Sprintf("To:      %s", m.To))
 	lines = append(lines, fmt.Sprintf("Date:    %s", m.Timestamp.Format("2006-01-02 15:04")))
 	if m.ThreadID != "" {
 		lines = append(lines, fmt.Sprintf("Thread:  %s", m.ThreadID))
+	}
+	if m.Priority != "" && m.Priority != "normal" {
+		lines = append(lines, fmt.Sprintf("Priority: %s", m.Priority))
 	}
 	lines = append(lines, "")
 
@@ -993,7 +1055,8 @@ func renderMailDetails(m data.MailMessage, width int) string {
 
 	// Quick actions hint
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("Press 'm' to mark read/unread, 'd' to delete"))
+	actionHint := "m: read/unread | y: acknowledge"
+	lines = append(lines, mutedStyle.Render(actionHint))
 
 	return strings.Join(lines, "\n")
 }

@@ -25,6 +25,10 @@ const (
 	ActionRestartRefinery
 	ActionStopPolecat    // Stop a single idle polecat
 	ActionStopAllIdle    // Stop all idle polecats in a rig
+	ActionMarkMailRead   // Mark a mail message as read
+	ActionMarkMailUnread // Mark a mail message as unread
+	ActionAckMail        // Acknowledge a mail message
+	ActionReplyMail      // Quick reply to a mail message
 )
 
 // Action represents a user-triggered action with its result.
@@ -151,6 +155,30 @@ func (r *ActionRunner) StopPolecat(ctx context.Context, agentAddress string) err
 // This is a convenience action that only stops polecats without active work.
 func (r *ActionRunner) StopAllIdlePolecats(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "polecat", "stop", "--idle", rig)
+}
+
+// MarkMailRead marks a mail message as read.
+// Runs: gt mail read <mail-id>
+func (r *ActionRunner) MarkMailRead(ctx context.Context, mailID string) error {
+	return r.runCommand(ctx, "gt", "mail", "read", mailID)
+}
+
+// MarkMailUnread marks a mail message as unread.
+// Runs: gt mail unread <mail-id>
+func (r *ActionRunner) MarkMailUnread(ctx context.Context, mailID string) error {
+	return r.runCommand(ctx, "gt", "mail", "unread", mailID)
+}
+
+// AckMail acknowledges a mail message (marks as read and archives).
+// Runs: gt mail ack <mail-id>
+func (r *ActionRunner) AckMail(ctx context.Context, mailID string) error {
+	return r.runCommand(ctx, "gt", "mail", "ack", mailID)
+}
+
+// ReplyMail sends a quick reply to a mail message.
+// Runs: gt mail reply <mail-id> -m "<message>"
+func (r *ActionRunner) ReplyMail(ctx context.Context, mailID, message string) error {
+	return r.runCommand(ctx, "gt", "mail", "reply", mailID, "-m", message)
 }
 
 // runCommand executes a shell command and returns any error.

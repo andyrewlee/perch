@@ -569,6 +569,38 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "m":
+		// Toggle read/unread for selected mail (only in Mail section)
+		if m.sidebar.Section != SectionMail {
+			m.setStatus("Switch to Mail section (press 5) to manage mail", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Mail) {
+			m.setStatus("No mail selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		mail := m.sidebar.Mail[m.sidebar.Selection].m
+		if mail.Read {
+			m.setStatus("Marking mail as unread...", false)
+			return m, m.mailActionCmd(ActionMarkMailUnread, mail.ID)
+		}
+		m.setStatus("Marking mail as read...", false)
+		return m, m.mailActionCmd(ActionMarkMailRead, mail.ID)
+
+	case "y":
+		// Acknowledge selected mail (only in Mail section)
+		if m.sidebar.Section != SectionMail {
+			m.setStatus("Switch to Mail section (press 5) to ack mail", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Mail) {
+			m.setStatus("No mail selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		mail := m.sidebar.Mail[m.sidebar.Selection].m
+		m.setStatus("Acknowledging mail...", false)
+		return m, m.mailActionCmd(ActionAckMail, mail.ID)
+
 	case "6":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionLifecycle
@@ -663,6 +695,26 @@ func (m Model) nudgeCmd(rig, worker, branch string, hasConflicts bool) tea.Cmd {
 
 		err := m.actionRunner.NudgePolecat(ctx, rig, worker, branch, hasConflicts)
 		return actionCompleteMsg{action: ActionNudgePolecat, target: worker, err: err}
+	}
+}
+
+// mailActionCmd creates a command that executes a mail action.
+func (m Model) mailActionCmd(action ActionType, mailID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var err error
+		switch action {
+		case ActionMarkMailRead:
+			err = m.actionRunner.MarkMailRead(ctx, mailID)
+		case ActionMarkMailUnread:
+			err = m.actionRunner.MarkMailUnread(ctx, mailID)
+		case ActionAckMail:
+			err = m.actionRunner.AckMail(ctx, mailID)
+		}
+
+		return actionCompleteMsg{action: action, target: mailID, err: err}
 	}
 }
 
@@ -803,6 +855,14 @@ func actionName(action ActionType) string {
 		return "Stop polecat"
 	case ActionStopAllIdle:
 		return "Stop all idle"
+	case ActionMarkMailRead:
+		return "Mark read"
+	case ActionMarkMailUnread:
+		return "Mark unread"
+	case ActionAckMail:
+		return "Acknowledge"
+	case ActionReplyMail:
+		return "Reply"
 	default:
 		return "Action"
 	}
@@ -1223,6 +1283,9 @@ func (m Model) renderFooter() string {
 			}
 			if m.sidebar.Section == SectionLifecycle {
 				helpItems = append(helpItems, "e: type filter", "g: agent filter", "x: clear")
+			}
+			if m.sidebar.Section == SectionMail {
+				helpItems = append(helpItems, "m: read/unread", "y: ack")
 			}
 		}
 		helpItems = append(helpItems, "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
