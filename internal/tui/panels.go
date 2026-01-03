@@ -161,16 +161,17 @@ type mailItem struct {
 
 func (m mailItem) ID() string { return m.m.ID }
 func (m mailItem) Label() string {
-	indicator := ""
+	// Use styled badge like agent status
+	badge := mailReadStyle.Render("○")
 	if !m.m.Read {
-		indicator = "* "
+		badge = mailUnreadStyle.Render("●")
 	}
 	// Truncate subject for display
 	subject := m.m.Subject
-	if len(subject) > 30 {
-		subject = subject[:27] + "..."
+	if len(subject) > 28 {
+		subject = subject[:25] + "..."
 	}
-	return fmt.Sprintf("%s%s", indicator, subject)
+	return fmt.Sprintf("%s %s", badge, subject)
 }
 func (m mailItem) Status() string {
 	if !m.m.Read {
@@ -447,7 +448,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	// Render each section
 	for sec := SectionRigs; sec <= SectionLifecycle; sec++ {
 		isActive := state.Section == sec
-		header := renderSectionHeader(sec.String(), sec, isActive)
+		header := renderSectionHeader(sec.String(), sec, isActive, state)
 		items := getSectionItems(state, sec)
 
 		var list string
@@ -486,12 +487,25 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	return style.Render(content)
 }
 
-func renderSectionHeader(name string, section SidebarSection, active bool) string {
+func renderSectionHeader(name string, section SidebarSection, active bool, state *SidebarState) string {
 	style := headerStyle
 	if active {
 		style = style.Foreground(highlight)
 	}
 	header := style.Render(name)
+
+	// Add unread count badge for Mail section
+	if section == SectionMail && state != nil {
+		unread := 0
+		for _, m := range state.Mail {
+			if !m.m.Read {
+				unread++
+			}
+		}
+		if unread > 0 {
+			header += " " + mailUnreadStyle.Render(fmt.Sprintf("(%d)", unread))
+		}
+	}
 
 	// Add section description when active
 	if active {
