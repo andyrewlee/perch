@@ -52,6 +52,9 @@ type Model struct {
 	confirmDialog *ConfirmDialog
 	addRigForm    *AddRigForm
 
+	// Attach town dialog
+	attachDialog *AttachDialog
+
 	// Selected items for actions
 	selectedRig   string
 	selectedAgent string
@@ -330,7 +333,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle confirmation dialog first
+	// Handle attach dialog first
+	if m.attachDialog != nil {
+		return m.handleAttachKey(msg)
+	}
+
+	// Handle confirmation dialog
 	if m.confirmDialog != nil {
 		return m.handleConfirmKey(msg)
 	}
@@ -346,6 +354,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.showHelp = true
+		return m, nil
+
+	case "A":
+		// Show attach town dialog (Shift+A to switch towns)
+		m.attachDialog = NewAttachDialog()
 		return m, nil
 
 	case "tab":
@@ -608,6 +621,47 @@ func (m Model) nudgeCmd(rig, worker, branch string, hasConflicts bool) tea.Cmd {
 	}
 }
 
+// handleAttachKey handles key presses when the attach dialog is shown.
+func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		if m.attachDialog.IsValid() {
+			newPath := m.attachDialog.ExpandedPath()
+			m.attachDialog = nil
+			// Reinitialize with new town root
+			m.townRoot = newPath
+			m.store = data.NewStore(newPath)
+			m.store.RefreshInterval = 5 * time.Second
+			m.actionRunner = NewActionRunner(newPath)
+			m.snapshot = nil
+			m.sidebar = NewSidebarState()
+			m.selectedRig = ""
+			m.selectedAgent = ""
+			m.setStatus("Attached to town: "+newPath, false)
+			return m, tea.Batch(m.loadData, statusExpireCmd(3*time.Second))
+		}
+		// Invalid - just show error (already visible)
+		return m, nil
+
+	case "esc":
+		m.attachDialog = nil
+		m.setStatus("Attach cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+
+	case "tab":
+		// Autocomplete - use first suggestion if available
+		if len(m.attachDialog.suggestions) > 0 {
+			m.attachDialog.SetValue(m.attachDialog.suggestions[0])
+		}
+		return m, nil
+
+	default:
+		// Pass key to text input
+		m.attachDialog.Update(msg)
+		return m, nil
+	}
+}
+
 // handleActionComplete processes the result of an action.
 func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -741,6 +795,10 @@ func (m Model) View() string {
 
 	if m.addRigForm != nil {
 		return m.addRigForm.View(m.width, m.height)
+	}
+
+	if m.attachDialog != nil {
+		return m.attachDialog.Render(m.width, m.height)
 	}
 
 	return m.renderLayout()
@@ -887,7 +945,7 @@ func (m Model) renderFooter() string {
 				helpItems = append(helpItems, "c: stop idle", "C: stop all idle")
 			}
 		}
-		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
+		helpItems = append(helpItems, "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
@@ -1024,6 +1082,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
 		helpKeyStyle.Render("1-5") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents, 5=Mail)",
 		helpKeyStyle.Render("a") + "          Add new rig",
+		helpKeyStyle.Render("A") + "          Attach to a different town",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
