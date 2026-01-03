@@ -135,3 +135,29 @@ var (
 	mailReadStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#666666"))
 )
+
+// Lifecycle event styles
+var (
+	spawnStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00")).
+			Bold(true)
+
+	wakeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#87CEEB"))
+
+	nudgeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00"))
+
+	handoffStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00BFFF"))
+
+	doneStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#32CD32"))
+
+	crashStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6666")).
+			Bold(true)
+
+	killStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF4500"))
+)

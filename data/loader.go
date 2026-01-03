@@ -1,11 +1,16 @@
 package data
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 )
@@ -202,6 +207,7 @@ type Snapshot struct {
 	Issues       []Issue
 	HookedIssues []Issue // Issues with hooked or in_progress status (active work)
 	Mail         []MailMessage
+	Lifecycle    *LifecycleLog
 	LoadedAt     time.Time
 	Errors       []error
 }
@@ -228,7 +234,7 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	}
 
 	// Parallel loads
-	wg.Add(5)
+	wg.Add(6)
 
 	go func() {
 		defer wg.Done()
@@ -288,6 +294,18 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Errors = append(snap.Errors, err)
 		} else {
 			snap.HookedIssues = hooked
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		lifecycle, err := l.LoadLifecycleLog(ctx, 100) // Load last 100 events
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.Lifecycle = lifecycle
 		}
 	}()
 
@@ -423,4 +441,101 @@ func splitAgentAddress(addr string) []string {
 		}
 	}
 	return []string{addr}
+}
+
+// LoadLifecycleLog loads and parses the town.log file.
+// It reads the last 'limit' events from the log file.
+func (l *Loader) LoadLifecycleLog(_ context.Context, limit int) (*LifecycleLog, error) {
+	logPath := filepath.Join(l.TownRoot, "logs", "town.log")
+
+	file, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// Log file doesn't exist yet - not an error
+			return &LifecycleLog{LoadedAt: time.Now()}, nil
+		}
+		return nil, fmt.Errorf("opening town.log: %w", err)
+	}
+	defer file.Close()
+
+	// Read all lines first (we need to get the last N)
+	var allLines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		allLines = append(allLines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading town.log: %w", err)
+	}
+
+	// Get last 'limit' lines
+	start := 0
+	if len(allLines) > limit {
+		start = len(allLines) - limit
+	}
+	lines := allLines[start:]
+
+	// Parse events (in reverse order so newest is first)
+	events := make([]LifecycleEvent, 0, len(lines))
+	for i := len(lines) - 1; i >= 0; i-- {
+		if event, ok := parseLifecycleEvent(lines[i]); ok {
+			events = append(events, event)
+		}
+	}
+
+	return &LifecycleLog{
+		Events:   events,
+		LoadedAt: time.Now(),
+	}, nil
+}
+
+// parseLifecycleEvent parses a single line from town.log.
+// Format: "2026-01-02 07:09:03 [done] gastown-ui/rictus completed rictus-mjx03nhm"
+func parseLifecycleEvent(line string) (LifecycleEvent, bool) {
+	// Pattern: timestamp [event_type] agent_or_message rest_of_message
+	pattern := regexp.MustCompile(`^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \[(\w+)\] (.+)$`)
+	matches := pattern.FindStringSubmatch(line)
+	if matches == nil {
+		return LifecycleEvent{}, false
+	}
+
+	timestamp, err := time.Parse("2006-01-02 15:04:05", matches[1])
+	if err != nil {
+		return LifecycleEvent{}, false
+	}
+
+	eventType := LifecycleEventType(matches[2])
+	message := matches[3]
+
+	// Extract agent from message based on event type
+	agent := extractAgentFromMessage(eventType, message)
+
+	return LifecycleEvent{
+		Timestamp: timestamp,
+		EventType: eventType,
+		Agent:     agent,
+		Message:   message,
+	}, true
+}
+
+// extractAgentFromMessage extracts the agent address from the event message.
+func extractAgentFromMessage(eventType LifecycleEventType, message string) string {
+	// Different event types have different formats:
+	// [nudge] deacon nudged with "..."
+	// [done] gastown-ui/rictus completed rictus-mjx03nhm
+	// [kill] gastown-ui/rictus killed (gt session stop)
+	// [handoff] deacon handed off (...)
+	// [spawn] perch/furiosa spawned by witness
+
+	// First word is usually the agent
+	parts := strings.Fields(message)
+	if len(parts) == 0 {
+		return ""
+	}
+
+	agent := parts[0]
+
+	// Some agents don't have the rig/ prefix (like "deacon")
+	// Keep them as-is for now
+	return agent
 }

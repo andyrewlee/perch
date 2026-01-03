@@ -555,6 +555,38 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.Selection = 0
 		}
 		return m, nil
+
+	case "6":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionLifecycle
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
+	case "e":
+		// Cycle lifecycle type filter (only in Lifecycle section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
+			m.cycleLifecycleTypeFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+		}
+		return m, nil
+
+	case "g":
+		// Set agent filter to current selection's agent (only in Lifecycle section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
+			m.setLifecycleAgentFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+		}
+		return m, nil
+
+	case "x":
+		// Clear lifecycle filters (only in Lifecycle section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
+			m.sidebar.LifecycleFilter = ""
+			m.sidebar.LifecycleAgentFilter = ""
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -691,6 +723,45 @@ func (m *Model) syncSelectedRig() {
 		if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Rigs) {
 			m.selectedRig = m.sidebar.Rigs[m.sidebar.Selection].r.Name
 		}
+	}
+}
+
+// cycleLifecycleTypeFilter cycles through lifecycle event type filters.
+func (m *Model) cycleLifecycleTypeFilter() {
+	types := []data.LifecycleEventType{
+		"", // all
+		data.EventSpawn,
+		data.EventWake,
+		data.EventNudge,
+		data.EventHandoff,
+		data.EventDone,
+		data.EventCrash,
+		data.EventKill,
+	}
+
+	current := m.sidebar.LifecycleFilter
+	for i, t := range types {
+		if t == current {
+			m.sidebar.LifecycleFilter = types[(i+1)%len(types)]
+			m.sidebar.Selection = 0
+			return
+		}
+	}
+	m.sidebar.LifecycleFilter = types[1] // Default to first filter
+	m.sidebar.Selection = 0
+}
+
+// setLifecycleAgentFilter sets the agent filter to the currently selected event's agent.
+func (m *Model) setLifecycleAgentFilter() {
+	if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.LifecycleEvents) {
+		agent := m.sidebar.LifecycleEvents[m.sidebar.Selection].e.Agent
+		if m.sidebar.LifecycleAgentFilter == agent {
+			// Toggle off if already set to this agent
+			m.sidebar.LifecycleAgentFilter = ""
+		} else {
+			m.sidebar.LifecycleAgentFilter = agent
+		}
+		m.sidebar.Selection = 0
 	}
 }
 
@@ -1087,12 +1158,15 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-5: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-6: jump")
 			if m.sidebar.Section == SectionMergeQueue {
 				helpItems = append(helpItems, "n: nudge")
 			}
 			if m.sidebar.Section == SectionAgents {
 				helpItems = append(helpItems, "c: stop idle", "C: stop all idle")
+			}
+			if m.sidebar.Section == SectionLifecycle {
+				helpItems = append(helpItems, "e: type filter", "g: agent filter", "x: clear")
 			}
 		}
 		helpItems = append(helpItems, "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
@@ -1230,10 +1304,13 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-5") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents, 5=Mail)",
+		helpKeyStyle.Render("1-6") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents, 5=Mail, 6=Lifecycle)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("A") + "          Attach to a different town",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
+		helpKeyStyle.Render("e") + "          Cycle type filter (lifecycle)",
+		helpKeyStyle.Render("g") + "          Filter by agent (lifecycle)",
+		helpKeyStyle.Render("x") + "          Clear filters (lifecycle)",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
