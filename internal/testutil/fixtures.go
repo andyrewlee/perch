@@ -112,6 +112,45 @@ func (f *Fixtures) ConvoysJSON() []byte {
 	return b
 }
 
+// ConvoyStatus returns sample gt convoy status <id> --json response.
+func (f *Fixtures) ConvoyStatus(id string) map[string]any {
+	switch id {
+	case "convoy-001":
+		return map[string]any{
+			"id":        "convoy-001",
+			"title":     "Feature: Auth",
+			"status":    "in_progress",
+			"completed": 1,
+			"total":     3,
+			"tracked":   []map[string]any{},
+		}
+	case "convoy-002":
+		return map[string]any{
+			"id":        "convoy-002",
+			"title":     "Bug: Fix login",
+			"status":    "complete",
+			"completed": 2,
+			"total":     2,
+			"tracked":   []map[string]any{},
+		}
+	default:
+		return map[string]any{
+			"id":        id,
+			"title":     "Unknown Convoy",
+			"status":    "unknown",
+			"completed": 0,
+			"total":     0,
+			"tracked":   []map[string]any{},
+		}
+	}
+}
+
+// ConvoyStatusJSON returns the JSON encoding of ConvoyStatus for a given ID.
+func (f *Fixtures) ConvoyStatusJSON(id string) []byte {
+	b, _ := json.Marshal(f.ConvoyStatus(id))
+	return b
+}
+
 // MergeQueue returns sample gt mq list <rig> --json response.
 func (f *Fixtures) MergeQueue(rig string) []map[string]any {
 	switch rig {

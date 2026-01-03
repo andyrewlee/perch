@@ -947,7 +947,12 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 			convoys = state.ClosedConvoys
 		}
 		if state.Selection >= 0 && state.Selection < len(convoys) {
-			return renderConvoyDetails(convoys[state.Selection].c, width, state.ShowConvoyHistory)
+			convoy := convoys[state.Selection].c
+			var status *data.ConvoyStatus
+			if snap.ConvoyStatuses != nil {
+				status = snap.ConvoyStatuses[convoy.ID]
+			}
+			return renderConvoyDetails(convoy, status, width, state.ShowConvoyHistory)
 		}
 	case SectionMergeQueue:
 		if state.Selection >= 0 && state.Selection < len(state.MRs) {
@@ -979,7 +984,7 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 	return mutedStyle.Render("Select an item to see details")
 }
 
-func renderConvoyDetails(c data.Convoy, width int, isHistory bool) string {
+func renderConvoyDetails(c data.Convoy, status *data.ConvoyStatus, width int, isHistory bool) string {
 	var lines []string
 	headerText := "Convoy"
 	if isHistory {
@@ -990,11 +995,56 @@ func renderConvoyDetails(c data.Convoy, width int, isHistory bool) string {
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("ID:      %s", c.ID))
 	lines = append(lines, fmt.Sprintf("Title:   %s", c.Title))
-	lines = append(lines, fmt.Sprintf("Status:  %s", c.Status))
+
+	// Status with visual indicator
+	statusBadge := convoyStatusBadge(c.Status)
+	lines = append(lines, fmt.Sprintf("Status:  %s %s", statusBadge, c.Status))
 	if statusHelp, ok := ConvoyHelp.Statuses[c.Status]; ok {
 		lines = append(lines, mutedStyle.Render("         "+statusHelp))
 	}
 	lines = append(lines, fmt.Sprintf("Created: %s", c.CreatedAt.Format("2006-01-02 15:04")))
+
+	// Progress section (if we have detailed status)
+	if status != nil && status.Total > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Progress"))
+
+		// Progress bar
+		progressPct := 0
+		if status.Total > 0 {
+			progressPct = status.Completed * 100 / status.Total
+		}
+		progressBar := renderProgressBar(progressPct, 20)
+		lines = append(lines, fmt.Sprintf("%s %d/%d (%d%%)", progressBar, status.Completed, status.Total, progressPct))
+
+		// Tracked issues section
+		if len(status.Tracked) > 0 {
+			lines = append(lines, "")
+			lines = append(lines, headerStyle.Render("Tracked Issues"))
+
+			for _, issue := range status.Tracked {
+				// Issue badge based on status
+				issueBadge := issueStatusBadge(issue.Status)
+				issueTitle := issue.Title
+				if len(issueTitle) > width-20 {
+					issueTitle = issueTitle[:width-23] + "..."
+				}
+				lines = append(lines, fmt.Sprintf("%s %s", issueBadge, issue.ID))
+				lines = append(lines, fmt.Sprintf("  %s", issueTitle))
+
+				// Show worker if assigned
+				if issue.Worker != "" {
+					workerInfo := issue.Worker
+					if issue.WorkerAge != "" {
+						workerInfo = fmt.Sprintf("%s (%s)", issue.Worker, issue.WorkerAge)
+					}
+					lines = append(lines, fmt.Sprintf("  %s %s", workingStyle.Render("→"), workerInfo))
+				} else if issue.Assignee != "" {
+					lines = append(lines, fmt.Sprintf("  %s %s", mutedStyle.Render("assigned:"), issue.Assignee))
+				}
+			}
+		}
+	}
 
 	if isHistory && c.IsLanded() {
 		// For landed convoys, show additional info
@@ -1003,6 +1053,52 @@ func renderConvoyDetails(c data.Convoy, width int, isHistory bool) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// convoyStatusBadge returns a colored badge for convoy status
+func convoyStatusBadge(status string) string {
+	switch status {
+	case "open":
+		return workingStyle.Render("●")
+	case "landed":
+		return completedStyle.Render("✓")
+	case "closed":
+		return mutedStyle.Render("○")
+	default:
+		return mutedStyle.Render("?")
+	}
+}
+
+// issueStatusBadge returns a colored badge for issue status
+func issueStatusBadge(status string) string {
+	switch status {
+	case "in_progress":
+		return workingStyle.Render("●")
+	case "open":
+		return idleStyle.Render("○")
+	case "closed":
+		return completedStyle.Render("✓")
+	default:
+		return mutedStyle.Render("?")
+	}
+}
+
+// renderProgressBar renders a simple ASCII progress bar
+func renderProgressBar(percent int, width int) string {
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	filled := width * percent / 100
+	empty := width - filled
+
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
+	if percent == 100 {
+		return completedStyle.Render("[" + bar + "]")
+	}
+	return workingStyle.Render("[" + bar + "]")
 }
 
 func renderMRDetails(mr data.MergeRequest, rig string, width int) string {

@@ -174,6 +174,48 @@ func (l *Loader) LoadConvoysWithDetails(ctx context.Context) ([]Convoy, error) {
 	return detailed, nil
 }
 
+// LoadConvoyStatus loads detailed status for a specific convoy.
+func (l *Loader) LoadConvoyStatus(ctx context.Context, convoyID string) (*ConvoyStatus, error) {
+	var status ConvoyStatus
+	if err := l.execJSON(ctx, &status, "gt", "convoy", "status", convoyID, "--json"); err != nil {
+		return nil, fmt.Errorf("loading convoy status for %s: %w", convoyID, err)
+	}
+	return &status, nil
+}
+
+// LoadAllConvoyStatuses loads detailed status for all convoys.
+func (l *Loader) LoadAllConvoyStatuses(ctx context.Context, convoys []Convoy) (map[string]*ConvoyStatus, error) {
+	result := make(map[string]*ConvoyStatus)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	errs := make(chan error, len(convoys))
+
+	for _, convoy := range convoys {
+		wg.Add(1)
+		go func(c Convoy) {
+			defer wg.Done()
+			status, err := l.LoadConvoyStatus(ctx, c.ID)
+			if err != nil {
+				errs <- err
+				return
+			}
+			mu.Lock()
+			result[c.ID] = status
+			mu.Unlock()
+		}(convoy)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	// Return first error if any
+	for err := range errs {
+		return nil, err
+	}
+
+	return result, nil
+}
+
 // LoadMergeQueue loads merge queue items for a specific rig.
 func (l *Loader) LoadMergeQueue(ctx context.Context, rig string) ([]MergeRequest, error) {
 	var mrs []MergeRequest
@@ -672,8 +714,9 @@ func (l *Loader) loadPluginInfo(pluginPath, name, scope string) Plugin {
 type Snapshot struct {
 	Town             *TownStatus
 	Polecats         []Polecat
-	Convoys          []Convoy   // Active/open convoys
-	ClosedConvoys    []Convoy   // Recently landed convoys
+	Convoys          []Convoy                  // Active/open convoys
+	ClosedConvoys    []Convoy                  // Recently landed convoys
+	ConvoyStatuses   map[string]*ConvoyStatus  // Detailed convoy status by ID
 	Worktrees        []Worktree
 	MergeQueues      map[string][]MergeRequest
 	Issues           []Issue
@@ -812,6 +855,16 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 
 	// Load operational state (requires town status)
 	snap.OperationalState = l.LoadOperationalState(ctx, snap.Town)
+
+	// Load convoy statuses (requires convoys to be loaded)
+	if len(snap.Convoys) > 0 {
+		statuses, err := l.LoadAllConvoyStatuses(ctx, snap.Convoys)
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.ConvoyStatuses = statuses
+		}
+	}
 
 	// Load MQ for each rig (requires town status)
 	if snap.Town != nil {

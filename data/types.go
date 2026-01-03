@@ -93,17 +93,6 @@ type Convoy struct {
 	Tracked   []TrackedIssue `json:"tracked,omitempty"`
 }
 
-// TrackedIssue represents an issue tracked by a convoy.
-type TrackedIssue struct {
-	ID         string `json:"id"`
-	Title      string `json:"title"`
-	Status     string `json:"status"`
-	IssueType  string `json:"issue_type"`
-	Assignee   string `json:"assignee,omitempty"`
-	Worker     string `json:"worker,omitempty"`
-	WorkerAge  string `json:"worker_age,omitempty"`
-}
-
 // Progress returns the completion percentage (0-100).
 func (c *Convoy) Progress() int {
 	if c.Total == 0 {
@@ -130,6 +119,30 @@ func (c *Convoy) HasActiveWork() bool {
 // IsLanded returns true if the convoy is closed/landed.
 func (c Convoy) IsLanded() bool {
 	return c.Status == "closed"
+}
+
+// TrackedIssue represents an issue tracked by a convoy.
+// Part of ConvoyStatus from: gt convoy status <id> --json
+type TrackedIssue struct {
+	ID             string `json:"id"`
+	Title          string `json:"title"`
+	Status         string `json:"status"`
+	DependencyType string `json:"dependency_type"`
+	IssueType      string `json:"issue_type"`
+	Assignee       string `json:"assignee"`
+	Worker         string `json:"worker"`
+	WorkerAge      string `json:"worker_age"`
+}
+
+// ConvoyStatus represents detailed convoy status.
+// Loaded via: gt convoy status <id> --json
+type ConvoyStatus struct {
+	ID        string         `json:"id"`
+	Title     string         `json:"title"`
+	Status    string         `json:"status"`
+	Tracked   []TrackedIssue `json:"tracked"`
+	Completed int            `json:"completed"`
+	Total     int            `json:"total"`
 }
 
 // MergeRequest represents an item in the merge queue.
