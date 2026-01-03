@@ -99,3 +99,98 @@ func TestRigsSortedAlphabetically(t *testing.T) {
 		t.Errorf("rigs not sorted alphabetically: alpha=%d, mike=%d, zebra=%d", alphaIdx, mikeIdx, zebraIdx)
 	}
 }
+
+func TestRenderRigSummary(t *testing.T) {
+	renderer := &OverviewRenderer{}
+
+	tests := []struct {
+		name        string
+		agents      []Agent
+		wantP       bool // expect polecat count
+		wantW       bool // expect witness count
+		wantR       bool // expect refinery count
+		wantWorking bool // expect working badge
+		wantIdle    bool // expect idle badge
+		wantAttn    bool // expect attention badge
+	}{
+		{
+			name: "mixed agents with statuses",
+			agents: []Agent{
+				{Type: AgentPolecat, Status: StatusWorking},
+				{Type: AgentPolecat, Status: StatusWorking},
+				{Type: AgentPolecat, Status: StatusIdle},
+				{Type: AgentWitness, Status: StatusWorking},
+				{Type: AgentRefinery, Status: StatusIdle},
+			},
+			wantP: true, wantW: true, wantR: true,
+			wantWorking: true, wantIdle: true, wantAttn: false,
+		},
+		{
+			name: "only polecats working",
+			agents: []Agent{
+				{Type: AgentPolecat, Status: StatusWorking},
+				{Type: AgentPolecat, Status: StatusWorking},
+			},
+			wantP: true, wantW: false, wantR: false,
+			wantWorking: true, wantIdle: false, wantAttn: false,
+		},
+		{
+			name: "with attention status",
+			agents: []Agent{
+				{Type: AgentPolecat, Status: StatusAttention},
+				{Type: AgentWitness, Status: StatusIdle},
+			},
+			wantP: true, wantW: true, wantR: false,
+			wantWorking: false, wantIdle: true, wantAttn: true,
+		},
+		{
+			name:   "empty agents",
+			agents: []Agent{},
+			wantP:  false, wantW: false, wantR: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			summary := renderer.renderRigSummary(tt.agents, 50)
+
+			if tt.wantP && !strings.Contains(summary, "P") {
+				t.Error("expected polecat count in summary")
+			}
+			if tt.wantW && !strings.Contains(summary, "W") {
+				t.Error("expected witness count in summary")
+			}
+			if tt.wantR && !strings.Contains(summary, "R") {
+				t.Error("expected refinery count in summary")
+			}
+			if tt.wantWorking && !strings.Contains(summary, "●") {
+				t.Error("expected working badge (●) in summary")
+			}
+			if tt.wantIdle && !strings.Contains(summary, "○") {
+				t.Error("expected idle badge (○) in summary")
+			}
+			if tt.wantAttn && !strings.Contains(summary, "!") {
+				t.Error("expected attention badge (!) in summary")
+			}
+		})
+	}
+}
+
+func TestLegendContainsStatusSymbols(t *testing.T) {
+	renderer := &OverviewRenderer{}
+	legend := renderer.renderLegend()
+
+	// Check new status symbols are in legend
+	if !strings.Contains(legend, "●") {
+		t.Error("expected working symbol (●) in legend")
+	}
+	if !strings.Contains(legend, "○") {
+		t.Error("expected idle symbol (○) in legend")
+	}
+	if !strings.Contains(legend, "!") {
+		t.Error("expected attention symbol (!) in legend")
+	}
+	if !strings.Contains(legend, "◌") {
+		t.Error("expected stopped symbol (◌) in legend")
+	}
+}

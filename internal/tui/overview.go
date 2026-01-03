@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -124,14 +125,17 @@ func (r *OverviewRenderer) renderRigBoxes(rigs []Rig, width, height int) string 
 
 // renderRigBox creates a single rig cluster visualization
 func (r *OverviewRenderer) renderRigBox(rig Rig, width, height int) string {
-	// Rig header
+	// Rig header with agent summary
 	header := rigHeaderStyle.Render(truncate(rig.Name, width-2))
 
 	// Render agents
 	agentLine := r.renderAgents(rig.Agents, width-2)
 
+	// Render summary with active/idle badges
+	summaryLine := r.renderRigSummary(rig.Agents, width-2)
+
 	// Build box content
-	content := lipgloss.JoinVertical(lipgloss.Left, header, agentLine)
+	content := lipgloss.JoinVertical(lipgloss.Left, header, agentLine, summaryLine)
 
 	// Apply box style
 	style := rigBoxStyle.
@@ -171,6 +175,83 @@ func (r *OverviewRenderer) renderAgents(agents []Agent, maxWidth int) string {
 	}
 
 	return line
+}
+
+// renderRigSummary creates a summary line with counts and status badges
+// Clarifies distinction: polecats are workers, hooks include W/R infra agents
+func (r *OverviewRenderer) renderRigSummary(agents []Agent, maxWidth int) string {
+	if len(agents) == 0 {
+		return ""
+	}
+
+	// Count by type
+	var polecatCount, witnessCount, refineryCount int
+	var workingCount, idleCount, attentionCount, stoppedCount int
+
+	for _, a := range agents {
+		switch a.Type {
+		case AgentPolecat:
+			polecatCount++
+		case AgentWitness:
+			witnessCount++
+		case AgentRefinery:
+			refineryCount++
+		}
+		switch a.Status {
+		case StatusWorking:
+			workingCount++
+		case StatusIdle:
+			idleCount++
+		case StatusAttention:
+			attentionCount++
+		case StatusStopped:
+			stoppedCount++
+		}
+	}
+
+	// Build summary: "3P 1W 1R" format for agent types
+	var parts []string
+
+	// Polecats count (workers)
+	if polecatCount > 0 {
+		parts = append(parts, fmt.Sprintf("%dP", polecatCount))
+	}
+	// Infrastructure agents (these also have hooks, explaining hooks > polecats)
+	if witnessCount > 0 {
+		parts = append(parts, fmt.Sprintf("%dW", witnessCount))
+	}
+	if refineryCount > 0 {
+		parts = append(parts, fmt.Sprintf("%dR", refineryCount))
+	}
+
+	typesSummary := strings.Join(parts, " ")
+
+	// Build status badges: "2● 1○" format
+	var statusParts []string
+	if workingCount > 0 {
+		statusParts = append(statusParts, workingStyle.Render(fmt.Sprintf("%d●", workingCount)))
+	}
+	if idleCount > 0 {
+		statusParts = append(statusParts, idleStyle.Render(fmt.Sprintf("%d○", idleCount)))
+	}
+	if attentionCount > 0 {
+		statusParts = append(statusParts, attentionStyle.Render(fmt.Sprintf("%d!", attentionCount)))
+	}
+	if stoppedCount > 0 {
+		statusParts = append(statusParts, stoppedStyle.Render(fmt.Sprintf("%d◌", stoppedCount)))
+	}
+
+	statusSummary := strings.Join(statusParts, " ")
+
+	// Combine: "3P 1W 1R │ 2● 1○"
+	summary := summaryStyle.Render(typesSummary) + " " + statusSummary
+
+	// Truncate if too long
+	if len(summary) > maxWidth {
+		summary = summary[:maxWidth-3] + "..."
+	}
+
+	return summary
 }
 
 // agentSymbol returns the colored symbol for an agent with status badge
@@ -272,6 +353,9 @@ var (
 	legendStyle = lipgloss.NewStyle().
 			Foreground(muted).
 			MarginTop(1)
+
+	summaryStyle = lipgloss.NewStyle().
+			Foreground(subtle)
 )
 
 // MockTown creates sample data for testing
