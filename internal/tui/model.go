@@ -31,6 +31,7 @@ type Model struct {
 	// Data store
 	store    *data.Store
 	snapshot *data.Snapshot
+	townRoot string
 
 	// Sidebar state
 	sidebar *SidebarState
@@ -41,6 +42,9 @@ type Model struct {
 	// Help overlay state
 	showHelp bool
 	firstRun bool
+
+	// Setup wizard (shown when no town exists)
+	setupWizard *SetupWizard
 
 	// Actions
 	actionRunner  *ActionRunner
@@ -81,12 +85,22 @@ func New() Model {
 
 // NewWithTownRoot creates a new Model with a custom town root.
 func NewWithTownRoot(townRoot string) Model {
+	// Check if town exists
+	if !TownExists(townRoot) {
+		// Show setup wizard for first-run
+		return Model{
+			townRoot:    townRoot,
+			setupWizard: NewSetupWizard(),
+		}
+	}
+
 	store := data.NewStore(townRoot)
 	store.RefreshInterval = 5 * time.Second
 
 	return Model{
 		focus:           PanelSidebar,
 		store:           store,
+		townRoot:        townRoot,
 		sidebar:         NewSidebarState(),
 		actionRunner:    NewActionRunner(townRoot),
 		refreshInterval: DefaultRefreshInterval,
@@ -123,6 +137,11 @@ type statusExpiredMsg struct{}
 
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
+	// If setup wizard is active, initialize it instead
+	if m.setupWizard != nil {
+		return m.setupWizard.Init()
+	}
+
 	return tea.Batch(
 		m.loadData,
 		m.tickCmd(),
@@ -179,6 +198,11 @@ func statusExpireCmd(duration time.Duration) tea.Cmd {
 
 // Update implements tea.Model
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle setup wizard if active
+	if m.setupWizard != nil {
+		return m.handleSetupWizard(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
@@ -245,6 +269,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// handleSetupWizard delegates to the setup wizard and handles transitions.
+func (m Model) handleSetupWizard(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Forward window size to both wizard and main model
+	if wsm, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = wsm.Width
+		m.height = wsm.Height
+		m.ready = true
+	}
+
+	// Update the wizard
+	wizardModel, cmd := m.setupWizard.Update(msg)
+	wizard, ok := wizardModel.(*SetupWizard)
+	if ok {
+		m.setupWizard = wizard
+	}
+
+	// Check if setup is complete
+	if m.setupWizard.IsComplete() {
+		// Transition to main dashboard
+		townRoot := m.setupWizard.TownRoot()
+		m.setupWizard = nil
+		m.townRoot = townRoot
+		m.store = data.NewStore(townRoot)
+		m.store.RefreshInterval = 5 * time.Second
+		m.sidebar = NewSidebarState()
+		m.actionRunner = NewActionRunner(townRoot)
+		m.refreshInterval = DefaultRefreshInterval
+		m.firstRun = true
+		m.showHelp = true // Show help on first run
+
+		// Start loading data
+		return m, tea.Batch(m.loadData, m.tickCmd())
+	}
+
+	return m, cmd
 }
 
 func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -534,6 +595,11 @@ func actionName(action ActionType) string {
 
 // View implements tea.Model
 func (m Model) View() string {
+	// Show setup wizard if active
+	if m.setupWizard != nil {
+		return m.setupWizard.View()
+	}
+
 	if !m.ready {
 		return "Initializing..."
 	}
