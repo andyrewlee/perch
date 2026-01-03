@@ -62,6 +62,11 @@ type Model struct {
 	selectedRig   string
 	selectedAgent string
 
+	// Audit timeline for selected agent
+	auditTimeline       []data.AuditEntry
+	auditTimelineActor  string
+	auditTimelineLoading bool
+
 	// Tick loop state
 	refreshInterval time.Duration
 	lastRefresh     time.Time
@@ -158,6 +163,13 @@ type actionCompleteMsg struct {
 
 type statusExpiredMsg struct{}
 
+// auditTimelineMsg signals that audit timeline has been loaded
+type auditTimelineMsg struct {
+	actor   string
+	entries []data.AuditEntry
+	err     error
+}
+
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
 	// If setup wizard is active, initialize it instead
@@ -188,6 +200,17 @@ func (m Model) tickCmd() tea.Cmd {
 	return tea.Tick(m.refreshInterval, func(t time.Time) tea.Msg {
 		return tickMsg(t)
 	})
+}
+
+// loadAuditTimelineCmd loads audit timeline for an actor
+func (m Model) loadAuditTimelineCmd(actor string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		entries, err := m.store.Loader().LoadAuditTimeline(ctx, actor, 20)
+		return auditTimelineMsg{actor: actor, entries: entries, err: err}
+	}
 }
 
 // actionCmd creates a command that executes an action.
@@ -300,6 +323,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusExpiredMsg:
 		m.statusMessage = nil
+
+	case auditTimelineMsg:
+		m.auditTimelineLoading = false
+		if msg.err != nil {
+			// Silent failure - just show empty timeline
+			m.auditTimeline = nil
+		} else if msg.actor == m.auditTimelineActor {
+			// Only update if still looking at same actor
+			m.auditTimeline = msg.entries
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -528,6 +562,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.SelectNext()
 			m.syncSelectedRig()
+			if cmd := m.syncSelectedAgent(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -535,6 +572,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.SelectPrev()
 			m.syncSelectedRig()
+			if cmd := m.syncSelectedAgent(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -542,6 +582,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.PrevSection()
 			m.syncSelectedRig()
+			if cmd := m.syncSelectedAgent(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -549,6 +592,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.NextSection()
 			m.syncSelectedRig()
+			if cmd := m.syncSelectedAgent(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -578,6 +624,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionAgents
 			m.sidebar.Selection = 0
+			if cmd := m.syncSelectedAgent(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -969,6 +1018,29 @@ func (m *Model) setLifecycleAgentFilter() {
 	}
 }
 
+// syncSelectedAgent updates selectedAgent and loads audit timeline when navigating in the Agents section.
+// Returns a command to load the audit timeline if needed.
+func (m *Model) syncSelectedAgent() tea.Cmd {
+	if m.sidebar.Section != SectionAgents || len(m.sidebar.Agents) == 0 {
+		return nil
+	}
+	if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Agents) {
+		return nil
+	}
+
+	agent := m.sidebar.Agents[m.sidebar.Selection].a
+	m.selectedAgent = agent.Address
+
+	// Load audit timeline if actor changed
+	if m.auditTimelineActor != agent.Address {
+		m.auditTimelineActor = agent.Address
+		m.auditTimeline = nil
+		m.auditTimelineLoading = true
+		return m.loadAuditTimelineCmd(agent.Address)
+	}
+	return nil
+}
+
 // actionName returns a human-readable name for an action type.
 func actionName(action ActionType) string {
 	switch action {
@@ -1136,7 +1208,18 @@ func (m Model) renderLayout() string {
 	// Build sidebar options with queue health info
 	sidebarOpts := m.buildSidebarOptions()
 	sidebar := RenderSidebar(m.sidebar, m.snapshot, sidebarWidth, bodyHeight, m.focus == PanelSidebar, sidebarOpts)
-	details := RenderDetails(m.sidebar, m.snapshot, detailsWidth, bodyHeight, m.focus == PanelDetails)
+
+	// Build audit state for agent details
+	var auditState *AuditTimelineState
+	if m.sidebar.Section == SectionAgents {
+		auditState = &AuditTimelineState{
+			Actor:   m.auditTimelineActor,
+			Entries: m.auditTimeline,
+			Loading: m.auditTimelineLoading,
+		}
+	}
+
+	details := RenderDetails(m.sidebar, m.snapshot, auditState, detailsWidth, bodyHeight, m.focus == PanelDetails)
 	footer := m.renderFooter()
 
 	// Combine sidebar and details horizontally

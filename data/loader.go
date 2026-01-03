@@ -363,6 +363,22 @@ func getWorktreeStatus(ctx context.Context, path string) (branch, status string,
 	return
 }
 
+// LoadAuditTimeline loads audit entries for a specific actor.
+func (l *Loader) LoadAuditTimeline(ctx context.Context, actor string, limit int) ([]AuditEntry, error) {
+	var entries []AuditEntry
+	args := []string{"gt", "audit", "--json"}
+	if actor != "" {
+		args = append(args, "--actor="+actor)
+	}
+	if limit > 0 {
+		args = append(args, "--limit", fmt.Sprintf("%d", limit))
+	}
+	if err := l.execJSON(ctx, &entries, args...); err != nil {
+		return nil, fmt.Errorf("loading audit timeline for %s: %w", actor, err)
+	}
+	return entries, nil
+}
+
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
 	Town             *TownStatus
