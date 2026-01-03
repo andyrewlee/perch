@@ -1020,8 +1020,17 @@ func renderItemList(items []SelectableItem, selection int, isActiveSection bool,
 		}
 
 		label := item.Label()
-		if len(label) > width-4 {
-			label = label[:width-7] + "..."
+		// Truncate long labels, but ensure at least 3 chars shown before "..."
+		maxLabelLen := width - 4 // Account for "  " prefix or "> " prefix
+		if maxLabelLen < 6 {
+			maxLabelLen = 6 // Minimum: 3 chars + "..."
+		}
+		if len(label) > maxLabelLen {
+			truncateAt := maxLabelLen - 3 // Leave room for "..."
+			if truncateAt < 3 {
+				truncateAt = 3 // Show at least 3 chars
+			}
+			label = label[:truncateAt] + "..."
 		}
 
 		if isActiveSection && i == selection {
