@@ -18,6 +18,7 @@ const (
 	ActionDeleteRig
 	ActionOpenLogs
 	ActionAddRig
+	ActionNudgePolecat
 )
 
 // Action represents a user-triggered action with its result.
@@ -73,6 +74,21 @@ func (r *ActionRunner) AddRig(ctx context.Context, name, gitURL, prefix string) 
 		args = append(args, "--prefix", prefix)
 	}
 	return r.runCommand(ctx, args...)
+}
+
+// NudgePolecat sends a nudge message to a polecat to resolve merge issues.
+// Runs: gt mail send <rig>/<worker> -s "Nudge: Resolve merge conflicts" -m "..."
+func (r *ActionRunner) NudgePolecat(ctx context.Context, rig, worker, branch string, hasConflicts bool) error {
+	subject := "Nudge: Resolve merge conflicts"
+	message := fmt.Sprintf("Your branch '%s' needs attention. ", branch)
+	if hasConflicts {
+		message += "Merge conflicts detected. Please rebase on main and resolve conflicts."
+	} else {
+		message += "Branch needs to be rebased on main."
+	}
+	message += "\n\nRun: git fetch origin main && git rebase origin/main"
+
+	return r.runCommand(ctx, "gt", "mail", "send", rig+"/"+worker, "-s", subject, "-m", message)
 }
 
 // runCommand executes a shell command and returns any error.

@@ -115,3 +115,13 @@ var (
 	hudDisconnectedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#666666"))
 )
+
+// Merge queue status styles
+var (
+	conflictStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6666")).
+			Bold(true)
+
+	rebaseStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00"))
+)
