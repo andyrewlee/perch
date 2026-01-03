@@ -193,6 +193,10 @@ func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
 			err = m.actionRunner.NudgeRefinery(ctx, target)
 		case ActionRestartRefinery:
 			err = m.actionRunner.RestartRefinery(ctx, target)
+		case ActionStopPolecat:
+			err = m.actionRunner.StopPolecat(ctx, target)
+		case ActionStopAllIdle:
+			err = m.actionRunner.StopAllIdlePolecats(ctx, target)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -427,6 +431,53 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.addRigForm = NewAddRigForm()
 		return m, nil
 
+	case "c":
+		// Stop selected idle polecat (only when Agents section is active)
+		if m.sidebar.Section != SectionAgents {
+			m.setStatus("Switch to Agents section (press 4) to stop polecats", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Agents) {
+			m.setStatus("No agent selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		agent := m.sidebar.Agents[m.sidebar.Selection].a
+		// Safety check: only allow stopping polecats, not witness/refinery
+		if agent.Role != "polecat" {
+			m.setStatus("Can only stop polecats, not "+agent.Role, true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		// Safety check: don't stop polecats with active work
+		if agent.HasWork {
+			m.setStatus("Polecat has active work! Nudge it first or wait for completion.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if !agent.Running {
+			m.setStatus("Polecat is already stopped", false)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Stop Polecat",
+			Message: "Stop idle polecat '" + agent.Name + "'? (y/n)",
+			Action:  ActionStopPolecat,
+			Target:  agent.Address,
+		}
+		return m, nil
+
+	case "C":
+		// Stop all idle polecats in selected rig
+		if m.selectedRig == "" {
+			m.setStatus("No rig selected. Use j/k to select a rig.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Stop All Idle",
+			Message: "Stop all idle polecats in '" + m.selectedRig + "'? Only idle polecats will be stopped. (y/n)",
+			Action:  ActionStopAllIdle,
+			Target:  m.selectedRig,
+		}
+		return m, nil
+
 	// Sidebar navigation (only when sidebar focused)
 	case "j", "down":
 		if m.focus == PanelSidebar {
@@ -603,6 +654,10 @@ func actionName(action ActionType) string {
 		return "Nudge refinery"
 	case ActionRestartRefinery:
 		return "Restart refinery"
+	case ActionStopPolecat:
+		return "Stop polecat"
+	case ActionStopAllIdle:
+		return "Stop all idle"
 	default:
 		return "Action"
 	}
@@ -821,6 +876,9 @@ func (m Model) renderFooter() string {
 			if m.sidebar.Section == SectionMergeQueue {
 				helpItems = append(helpItems, "n: nudge")
 			}
+			if m.sidebar.Section == SectionAgents {
+				helpItems = append(helpItems, "c: stop idle", "C: stop all idle")
+			}
 		}
 		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
@@ -960,6 +1018,8 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("1-4") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
+		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
+		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",
