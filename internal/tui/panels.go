@@ -334,7 +334,7 @@ func (s *SidebarState) clampSelection() {
 }
 
 // RenderSidebar renders the sidebar with all sections
-func RenderSidebar(state *SidebarState, width, height int, focused bool) string {
+func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, focused bool) string {
 	innerWidth := width - 4
 	innerHeight := height - 2
 
@@ -358,7 +358,14 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 		isActive := state.Section == sec
 		header := renderSectionHeader(sec.String(), sec, isActive)
 		items := getSectionItems(state, sec)
-		list := renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
+
+		var list string
+		if sec == SectionMergeQueue && len(items) == 0 {
+			// Special empty state for merge queue with context
+			list = renderMQEmptyState(snap, innerWidth)
+		} else {
+			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
+		}
 		sections = append(sections, header, list)
 	}
 
@@ -435,6 +442,41 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		return items
 	}
 	return nil
+}
+
+// renderMQEmptyState renders the merge queue empty state with refinery context
+func renderMQEmptyState(snap *data.Snapshot, width int) string {
+	var lines []string
+
+	// Find refinery agents and their status
+	refineryRunning := false
+	refineryCount := 0
+	if snap != nil && snap.Town != nil {
+		for _, agent := range snap.Town.Agents {
+			if agent.Role == "refinery" {
+				refineryCount++
+				if agent.Running {
+					refineryRunning = true
+				}
+			}
+		}
+	}
+
+	// Show refinery status
+	if refineryCount > 0 {
+		if refineryRunning {
+			lines = append(lines, idleStyle.Render("  ○ Refinery idle"))
+		} else {
+			lines = append(lines, stoppedStyle.Render("  ◌ Refinery stopped"))
+		}
+	} else {
+		lines = append(lines, mutedStyle.Render("  No refinery configured"))
+	}
+
+	// Healthy empty hint
+	lines = append(lines, mutedStyle.Render("  Queue clear - work landing"))
+
+	return strings.Join(lines, "\n")
 }
 
 func renderItemList(items []SelectableItem, selection int, isActiveSection bool, width, maxLines int) string {

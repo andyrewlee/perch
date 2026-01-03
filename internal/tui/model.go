@@ -825,7 +825,7 @@ func (m Model) renderLayout() string {
 
 	// Render panels
 	overview := m.renderOverview(m.width, overviewHeight)
-	sidebar := RenderSidebar(m.sidebar, sidebarWidth, bodyHeight, m.focus == PanelSidebar)
+	sidebar := RenderSidebar(m.sidebar, m.snapshot, sidebarWidth, bodyHeight, m.focus == PanelSidebar)
 	details := RenderDetails(m.sidebar, m.snapshot, detailsWidth, bodyHeight, m.focus == PanelDetails)
 	footer := m.renderFooter()
 
