@@ -261,6 +261,7 @@ func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *Op
 	return state
 }
 
+
 // LoadWorktrees scans crew directories across all rigs to find cross-rig worktrees.
 func (l *Loader) LoadWorktrees(ctx context.Context, rigs []string) ([]Worktree, error) {
 	var worktrees []Worktree

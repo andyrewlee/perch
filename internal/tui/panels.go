@@ -1076,6 +1076,7 @@ func formatAge(t time.Time) string {
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
+
 func renderWorktreeDetails(wt data.Worktree, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Worktree"))
