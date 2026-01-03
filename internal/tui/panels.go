@@ -1051,9 +1051,9 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 	lines = append(lines, headerStyle.Render("Activity Timeline"))
 	lines = append(lines, renderAuditTimeline(audit, width))
 
-	// Action hints based on state
+	// Action hints
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("Press 'o' to open logs"))
+	lines = append(lines, mutedStyle.Render("Actions: o=logs S=sling H=handoff K=kill n=nudge m=mail"))
 
 	return strings.Join(lines, "\n")
 }

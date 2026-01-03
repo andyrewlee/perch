@@ -99,6 +99,10 @@ var (
 			Foreground(lipgloss.Color("#FFCC00")).
 			Bold(true).
 			Padding(0, 1)
+
+	inputStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00CCFF")).
+			Padding(0, 1)
 )
 
 // HUD indicator styles

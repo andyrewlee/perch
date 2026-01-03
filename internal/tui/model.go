@@ -57,6 +57,7 @@ type Model struct {
 	confirmDialog  *ConfirmDialog
 	addRigForm     *AddRigForm
 	createWorkForm *CreateWorkForm
+	inputDialog    *InputDialog
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -233,6 +234,11 @@ func (m Model) loadAuditTimelineCmd(actor string) tea.Cmd {
 
 // actionCmd creates a command that executes an action.
 func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
+	return m.actionCmdWithInput(action, target, "", "")
+}
+
+// actionCmdWithInput creates a command that executes an action with additional input.
+func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -257,6 +263,16 @@ func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
 			err = m.actionRunner.StopAllIdlePolecats(ctx, target)
 		case ActionRemoveWorktree:
 			err = m.actionRunner.RemoveWorktree(ctx, target)
+		case ActionSlingWork:
+			err = m.actionRunner.SlingWork(ctx, input, target)
+		case ActionHandoff:
+			err = m.actionRunner.Handoff(ctx, target)
+		case ActionStopAgent:
+			err = m.actionRunner.StopAgent(ctx, target)
+		case ActionNudgeAgent:
+			err = m.actionRunner.NudgeAgent(ctx, target, input)
+		case ActionMailAgent:
+			err = m.actionRunner.MailAgent(ctx, target, input, extraInput)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -319,6 +335,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.selectedRig == "" && msg.snapshot != nil && msg.snapshot.Town != nil && len(msg.snapshot.Town.Rigs) > 0 {
 			m.selectedRig = msg.snapshot.Town.Rigs[0].Name
 		}
+
+		// Update selected agent from sidebar
+		m.updateSelectedFromSidebar()
 
 		if msg.snapshot != nil && msg.snapshot.HasErrors() {
 			m.errorCount = len(msg.snapshot.Errors)
@@ -417,7 +436,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Handle attach dialog first
+	// Handle input dialog first
+	if m.inputDialog != nil {
+		return m.handleInputKey(msg)
+	}
+
+	// Handle attach dialog
 	if m.attachDialog != nil {
 		return m.handleAttachKey(msg)
 	}
@@ -515,24 +539,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
 		return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
 
-	case "n":
-		// Nudge polecat to resolve merge issues
-		if m.sidebar.Section != SectionMergeQueue {
-			m.setStatus("Switch to Merge Queue section (press 2) to nudge", true)
-			return m, statusExpireCmd(3 * time.Second)
-		}
-		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
-			m.setStatus("No merge request selected", true)
-			return m, statusExpireCmd(3 * time.Second)
-		}
-		mr := m.sidebar.MRs[m.sidebar.Selection]
-		if !mr.mr.HasConflicts && !mr.mr.NeedsRebase {
-			m.setStatus("MR has no conflicts or rebase needed", false)
-			return m, statusExpireCmd(3 * time.Second)
-		}
-		m.setStatus("Nudging "+mr.mr.Worker+"...", false)
-		return m, m.nudgeCmd(mr.rig, mr.mr.Worker, mr.mr.Branch, mr.mr.HasConflicts)
-
 	case "a":
 		// Open add rig form
 		m.addRigForm = NewAddRigForm()
@@ -596,6 +602,90 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "n":
+		// Context-sensitive nudge: merge queue or agents section
+		if m.sidebar.Section == SectionMergeQueue {
+			// Nudge polecat to resolve merge issues
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+				m.setStatus("No merge request selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mr := m.sidebar.MRs[m.sidebar.Selection]
+			if !mr.mr.HasConflicts && !mr.mr.NeedsRebase {
+				m.setStatus("MR has no conflicts or rebase needed", false)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			m.setStatus("Nudging "+mr.mr.Worker+"...", false)
+			return m, m.nudgeCmd(mr.rig, mr.mr.Worker, mr.mr.Branch, mr.mr.HasConflicts)
+		} else if m.sidebar.Section == SectionAgents {
+			// Nudge selected agent (opens input dialog)
+			if m.selectedAgent == "" {
+				m.setStatus("No agent selected. Use j/k to select an agent.", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			m.inputDialog = &InputDialog{
+				Title:  "Nudge Agent",
+				Prompt: "Message to " + m.selectedAgent + ": ",
+				Action: ActionNudgeAgent,
+				Target: m.selectedAgent,
+			}
+			return m, nil
+		}
+		m.setStatus("Switch to Merge Queue or Agents section to nudge", true)
+		return m, statusExpireCmd(3 * time.Second)
+
+	case "S":
+		// Sling work to selected agent (opens input dialog)
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.inputDialog = &InputDialog{
+			Title:  "Sling Work",
+			Prompt: "Bead ID to sling to " + m.selectedAgent + ": ",
+			Action: ActionSlingWork,
+			Target: m.selectedAgent,
+		}
+		return m, nil
+
+	case "H":
+		// Handoff selected agent's work
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.setStatus("Handing off work for "+m.selectedAgent+"...", false)
+		return m, m.actionCmd(ActionHandoff, m.selectedAgent)
+
+	case "K":
+		// Kill/stop selected agent (requires confirmation)
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Stop",
+			Message: "Stop agent '" + m.selectedAgent + "'? This will nuke the polecat. (y/n)",
+			Action:  ActionStopAgent,
+			Target:  m.selectedAgent,
+		}
+		return m, nil
+
+	case "m":
+		// Mail selected agent (opens input dialog)
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.inputDialog = &InputDialog{
+			Title:       "Mail Agent",
+			Prompt:      "Subject: ",
+			ExtraPrompt: "Message: ",
+			Action:      ActionMailAgent,
+			Target:      m.selectedAgent,
+		}
+		return m, nil
+
 	// Sidebar navigation (only when sidebar focused)
 	case "j", "down":
 		if m.focus == PanelSidebar {
@@ -649,6 +739,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionConvoys
 			m.sidebar.Selection = 0
+			m.updateSelectedFromSidebar()
 		}
 		return m, nil
 
@@ -656,6 +747,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionMergeQueue
 			m.sidebar.Selection = 0
+			m.updateSelectedFromSidebar()
 		}
 		return m, nil
 
@@ -1084,6 +1176,62 @@ func (m Model) mailActionCmd(action ActionType, mailID string) tea.Cmd {
 	}
 }
 
+// handleInputKey handles key presses when an input dialog is shown.
+func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		dialog := m.inputDialog
+		// If there's an extra field and we're on the first field, move to second
+		if dialog.ExtraPrompt != "" && dialog.Field == 0 {
+			dialog.Field = 1
+			return m, nil
+		}
+		// Execute the action
+		m.inputDialog = nil
+		if dialog.Input == "" {
+			m.setStatus("Input cancelled (empty)", false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		m.setStatus("Executing "+actionName(dialog.Action)+"...", false)
+		return m, m.actionCmdWithInput(dialog.Action, dialog.Target, dialog.Input, dialog.ExtraInput)
+
+	case "esc":
+		m.inputDialog = nil
+		m.setStatus("Input cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+
+	case "backspace":
+		dialog := m.inputDialog
+		if dialog.Field == 0 && len(dialog.Input) > 0 {
+			dialog.Input = dialog.Input[:len(dialog.Input)-1]
+		} else if dialog.Field == 1 && len(dialog.ExtraInput) > 0 {
+			dialog.ExtraInput = dialog.ExtraInput[:len(dialog.ExtraInput)-1]
+		}
+		return m, nil
+
+	case "tab":
+		// Toggle between fields if there are two
+		dialog := m.inputDialog
+		if dialog.ExtraPrompt != "" {
+			dialog.Field = (dialog.Field + 1) % 2
+		}
+		return m, nil
+
+	default:
+		// Add character to current input field
+		key := msg.String()
+		if len(key) == 1 {
+			dialog := m.inputDialog
+			if dialog.Field == 0 {
+				dialog.Input += key
+			} else {
+				dialog.ExtraInput += key
+			}
+		}
+		return m, nil
+	}
+}
+
 // handleAttachKey handles key presses when the attach dialog is shown.
 func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -1151,6 +1299,23 @@ func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) 
 func (m *Model) setStatus(text string, isError bool) {
 	msg := NewStatusMessage(text, isError, 5*time.Second)
 	m.statusMessage = &msg
+}
+
+// syncSelection updates selectedRig and selectedAgent based on sidebar selection.
+func (m *Model) syncSelection() {
+	if m.sidebar == nil {
+		return
+	}
+	if m.sidebar.Section == SectionRigs && len(m.sidebar.Rigs) > 0 {
+		if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Rigs) {
+			m.selectedRig = m.sidebar.Rigs[m.sidebar.Selection].r.Name
+		}
+	}
+	if m.sidebar.Section == SectionAgents {
+		if item := m.sidebar.SelectedItem(); item != nil {
+			m.selectedAgent = item.ID()
+		}
+	}
 }
 
 // syncSelectedRig updates selectedRig when navigating in the Rigs section.
@@ -1224,6 +1389,11 @@ func (m *Model) syncSelectedAgent() tea.Cmd {
 	return nil
 }
 
+// updateSelectedFromSidebar updates selectedRig and selectedAgent based on sidebar.
+func (m *Model) updateSelectedFromSidebar() {
+	m.syncSelection()
+}
+
 // actionName returns a human-readable name for an action type.
 func actionName(action ActionType) string {
 	switch action {
@@ -1241,6 +1411,16 @@ func actionName(action ActionType) string {
 		return "Add rig"
 	case ActionNudgePolecat:
 		return "Nudge"
+	case ActionSlingWork:
+		return "Sling work"
+	case ActionHandoff:
+		return "Handoff"
+	case ActionStopAgent:
+		return "Stop agent"
+	case ActionNudgeAgent:
+		return "Nudge"
+	case ActionMailAgent:
+		return "Mail"
 	case ActionNudgeRefinery:
 		return "Nudge refinery"
 	case ActionRestartRefinery:
@@ -1731,7 +1911,19 @@ func (m Model) renderFooter() string {
 
 	// Status message takes priority over help text
 	var rightSide string
-	if m.statusMessage != nil && !m.statusMessage.IsExpired() {
+	if m.inputDialog != nil {
+		// Show input dialog prompt with current input
+		dialog := m.inputDialog
+		var prompt, input string
+		if dialog.Field == 0 {
+			prompt = dialog.Prompt
+			input = dialog.Input
+		} else {
+			prompt = dialog.ExtraPrompt
+			input = dialog.ExtraInput
+		}
+		rightSide = inputStyle.Render(prompt + input + "_")
+	} else if m.statusMessage != nil && !m.statusMessage.IsExpired() {
 		style := statusStyle
 		if m.statusMessage.IsError {
 			style = statusErrorStyle
@@ -1767,7 +1959,11 @@ func (m Model) renderFooter() string {
 				helpItems = append(helpItems, "x: remove")
 			}
 		}
-		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
+		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs")
+		if m.sidebar != nil && m.sidebar.Section == SectionAgents {
+			helpItems = append(helpItems, "S: sling", "H: handoff", "K: kill", "n: nudge", "m: mail")
+		}
+		helpItems = append(helpItems, "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
@@ -1927,6 +2123,15 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",
 		helpKeyStyle.Render("d") + "          Delete selected rig",
 		helpKeyStyle.Render("o") + "          Open logs for agent",
+		"",
+		helpHeaderStyle.Render("Agent Actions (when in Agents section)"),
+		"",
+		helpKeyStyle.Render("S") + "          Sling work to agent",
+		helpKeyStyle.Render("H") + "          Handoff agent's work",
+		helpKeyStyle.Render("K") + "          Kill/stop agent",
+		helpKeyStyle.Render("n") + "          Nudge agent with message",
+		helpKeyStyle.Render("m") + "          Mail agent",
+		"",
 		helpKeyStyle.Render("?") + "          Show this help",
 		helpKeyStyle.Render("q") + "          Quit",
 	}
