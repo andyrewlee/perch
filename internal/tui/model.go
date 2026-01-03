@@ -160,6 +160,8 @@ func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
 			err = m.actionRunner.BootRig(ctx, target)
 		case ActionShutdownRig:
 			err = m.actionRunner.ShutdownRig(ctx, target)
+		case ActionDeleteRig:
+			err = m.actionRunner.DeleteRig(ctx, target)
 		case ActionOpenLogs:
 			err = m.actionRunner.OpenLogs(ctx, target)
 		}
@@ -199,6 +201,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.snapshot = msg.snapshot
 		m.sidebar.UpdateFromSnapshot(msg.snapshot)
+
+		// Validate selected rig still exists, reset if not
+		if m.selectedRig != "" && msg.snapshot != nil && msg.snapshot.Town != nil {
+			found := false
+			for _, rig := range msg.snapshot.Town.Rigs {
+				if rig.Name == m.selectedRig {
+					found = true
+					break
+				}
+			}
+			if !found {
+				m.selectedRig = ""
+			}
+		}
 
 		// Set default selection if none
 		if m.selectedRig == "" && msg.snapshot != nil && msg.snapshot.Town != nil && len(msg.snapshot.Town.Rigs) > 0 {
@@ -289,6 +305,20 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Title:   "Confirm Shutdown",
 			Message: "Shutdown rig '" + m.selectedRig + "'? This will stop all agents. (y/n)",
 			Action:  ActionShutdownRig,
+			Target:  m.selectedRig,
+		}
+		return m, nil
+
+	case "d":
+		// Delete selected rig (requires confirmation)
+		if m.selectedRig == "" {
+			m.setStatus("No rig selected. Use j/k to select a rig.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Delete",
+			Message: "Delete rig '" + m.selectedRig + "'? This unregisters it from the town (files not deleted). (y/n)",
+			Action:  ActionDeleteRig,
 			Target:  m.selectedRig,
 		}
 		return m, nil
@@ -439,6 +469,8 @@ func actionName(action ActionType) string {
 		return "Boot"
 	case ActionShutdownRig:
 		return "Shutdown"
+	case ActionDeleteRig:
+		return "Delete"
 	case ActionOpenLogs:
 		return "Open logs"
 	case ActionAddRig:
@@ -600,7 +632,7 @@ func (m Model) renderFooter() string {
 		case PanelSidebar:
 			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-3: jump")
 		}
-		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "o: logs", "?: help", "q: quit")
+		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
@@ -733,6 +765,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",
+		helpKeyStyle.Render("d") + "          Delete selected rig",
 		helpKeyStyle.Render("o") + "          Open logs for agent",
 		helpKeyStyle.Render("?") + "          Show this help",
 		helpKeyStyle.Render("q") + "          Quit",

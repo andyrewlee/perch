@@ -15,6 +15,7 @@ const (
 	ActionRefresh ActionType = iota
 	ActionBootRig
 	ActionShutdownRig
+	ActionDeleteRig
 	ActionOpenLogs
 	ActionAddRig
 )
@@ -49,6 +50,13 @@ func (r *ActionRunner) BootRig(ctx context.Context, rig string) error {
 // Runs: gt rig shutdown <rig>
 func (r *ActionRunner) ShutdownRig(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "rig", "shutdown", rig)
+}
+
+// DeleteRig removes a rig from the town.
+// Runs: gt rig remove <rig>
+// Note: This unregisters the rig but does not delete files.
+func (r *ActionRunner) DeleteRig(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "rig", "remove", rig)
 }
 
 // OpenLogs opens logs for an agent.
@@ -119,7 +127,7 @@ type ConfirmDialog struct {
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
-	case ActionShutdownRig:
+	case ActionShutdownRig, ActionDeleteRig:
 		return true
 	default:
 		return false

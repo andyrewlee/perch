@@ -51,6 +51,7 @@ func TestIsDestructive(t *testing.T) {
 		{ActionRefresh, false},
 		{ActionBootRig, false},
 		{ActionShutdownRig, true},
+		{ActionDeleteRig, true},
 		{ActionOpenLogs, false},
 	}
 
@@ -70,6 +71,7 @@ func TestActionName(t *testing.T) {
 		{ActionRefresh, "Refresh"},
 		{ActionBootRig, "Boot"},
 		{ActionShutdownRig, "Shutdown"},
+		{ActionDeleteRig, "Delete"},
 		{ActionOpenLogs, "Open logs"},
 	}
 
