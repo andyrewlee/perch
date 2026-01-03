@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"testing"
 	"time"
 )
@@ -39,9 +40,29 @@ func TestNewModelHasRefreshInterval(t *testing.T) {
 }
 
 func TestNewWithTownRootHasRefreshInterval(t *testing.T) {
-	m := NewWithTownRoot("/tmp/test-town")
+	// Create a temporary directory that looks like a town
+	tmpDir := t.TempDir()
+	// Create mayor/ directory to make TownExists return true
+	if err := os.MkdirAll(tmpDir+"/mayor", 0755); err != nil {
+		t.Fatalf("failed to create test town: %v", err)
+	}
+
+	m := NewWithTownRoot(tmpDir)
+	// Should not be in setup mode
+	if m.setupWizard != nil {
+		t.Errorf("NewWithTownRoot with existing town should not show setup wizard")
+	}
 	if m.refreshInterval != DefaultRefreshInterval {
 		t.Errorf("NewWithTownRoot model refreshInterval = %v, want %v", m.refreshInterval, DefaultRefreshInterval)
+	}
+}
+
+func TestNewWithTownRootShowsSetupForMissingTown(t *testing.T) {
+	// Use a path that doesn't exist
+	m := NewWithTownRoot("/nonexistent/path/that/does/not/exist")
+	// Should be in setup mode
+	if m.setupWizard == nil {
+		t.Errorf("NewWithTownRoot with missing town should show setup wizard")
 	}
 }
 
