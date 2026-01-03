@@ -61,6 +61,10 @@ type Model struct {
 	lastRefresh     time.Time
 	errorCount      int
 	isRefreshing    bool
+
+	// Queue health panel (shown when Merge Queue selected in sidebar)
+	queueHealthPanel *QueueHealthPanel
+	queueHealthData  map[string]QueueHealth // Per-rig queue health
 }
 
 // DefaultTownRoot is the default Gas Town root directory.
@@ -104,6 +108,7 @@ func NewWithTownRoot(townRoot string) Model {
 		sidebar:         NewSidebarState(),
 		actionRunner:    NewActionRunner(townRoot),
 		refreshInterval: DefaultRefreshInterval,
+		queueHealthData: make(map[string]QueueHealth),
 	}
 }
 
@@ -123,6 +128,7 @@ func NewWithStore(store *data.Store, townRoot string) Model {
 		sidebar:         NewSidebarState(),
 		actionRunner:    NewActionRunner(townRoot),
 		refreshInterval: DefaultRefreshInterval,
+		queueHealthData: make(map[string]QueueHealth),
 	}
 }
 
@@ -183,6 +189,10 @@ func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
 			err = m.actionRunner.DeleteRig(ctx, target)
 		case ActionOpenLogs:
 			err = m.actionRunner.OpenLogs(ctx, target)
+		case ActionNudgeRefinery:
+			err = m.actionRunner.NudgeRefinery(ctx, target)
+		case ActionRestartRefinery:
+			err = m.actionRunner.RestartRefinery(ctx, target)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -225,6 +235,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.snapshot = msg.snapshot
 		m.sidebar.UpdateFromSnapshot(msg.snapshot)
+		m.updateQueueHealth(msg.snapshot)
 
 		// Validate selected rig still exists, reset if not
 		if m.selectedRig != "" && msg.snapshot != nil && msg.snapshot.Town != nil {
@@ -588,8 +599,66 @@ func actionName(action ActionType) string {
 		return "Add rig"
 	case ActionNudgePolecat:
 		return "Nudge"
+	case ActionNudgeRefinery:
+		return "Nudge refinery"
+	case ActionRestartRefinery:
+		return "Restart refinery"
 	default:
 		return "Action"
+	}
+}
+
+// updateQueueHealth populates queue health data from snapshot.
+func (m *Model) updateQueueHealth(snap *data.Snapshot) {
+	if snap == nil {
+		return
+	}
+	if m.queueHealthData == nil {
+		m.queueHealthData = make(map[string]QueueHealth)
+	}
+
+	for rigName, mrs := range snap.MergeQueues {
+		health := QueueHealth{
+			RigName: rigName,
+			State:   RefineryIdle,
+		}
+
+		// Determine refinery state from agents
+		if snap.Town != nil {
+			for _, rig := range snap.Town.Rigs {
+				if rig.Name == rigName {
+					for _, agent := range rig.Agents {
+						if agent.Role == "refinery" {
+							health.RefineryAgent = agent.Address
+							if agent.Running && agent.HasWork {
+								health.State = RefineryProcessing
+							} else if !agent.Running {
+								health.State = RefineryStalled
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// Convert MergeRequests to QueueMRs
+		for _, mr := range mrs {
+			qmr := QueueMR{
+				ID:     mr.ID,
+				Title:  mr.Title,
+				Worker: mr.Worker,
+				Status: mr.Status,
+			}
+			// Age is calculated from current time if not set
+			health.MRs = append(health.MRs, qmr)
+
+			// Check if any MR is stale (indicates potential stall)
+			if qmr.Age > 1*time.Hour && health.State == RefineryIdle {
+				health.State = RefineryStalled
+			}
+		}
+
+		m.queueHealthData[rigName] = health
 	}
 }
 
