@@ -388,3 +388,19 @@ func (r *DoctorReport) Warnings() []DoctorCheck {
 	}
 	return warns
 }
+
+// Plugin represents a Gas Town plugin.
+// Loaded by scanning ~/gt/plugins/ and <rig>/plugins/ directories.
+type Plugin struct {
+	Name        string    `json:"name"`        // Directory name
+	Path        string    `json:"path"`        // Full path to plugin directory
+	Title       string    `json:"title"`       // From plugin.md frontmatter
+	Description string    `json:"description"` // From plugin.md frontmatter
+	GateType    string    `json:"gate_type"`   // cooldown, cron, condition, event
+	Schedule    string    `json:"schedule"`    // Cron or cooldown value
+	Enabled     bool      `json:"enabled"`     // Whether plugin is enabled
+	Scope       string    `json:"scope"`       // "town" or rig name
+	LastRun     time.Time `json:"last_run"`    // Last execution time
+	LastError   string    `json:"last_error"`  // Last error message if any
+	HasError    bool      `json:"has_error"`   // Whether plugin has errors
+}

@@ -56,7 +56,7 @@ func TestHelpOverlay_FirstRun(t *testing.T) {
 func TestHelpOverlay_Content(t *testing.T) {
 	m := NewTestModel(t)
 	m.width = 100
-	m.height = 80 // Larger to prevent truncation
+	m.height = 120 // Larger to prevent truncation (help content is ~70+ lines)
 	m.ready = true
 	m.showHelp = true
 
@@ -97,7 +97,7 @@ func TestHelpOverlay_Content(t *testing.T) {
 func TestHelpOverlay_DismissMessage(t *testing.T) {
 	m := NewTestModel(t)
 	m.width = 100
-	m.height = 80 // Larger to prevent truncation
+	m.height = 120 // Larger to prevent truncation (help content is ~70+ lines)
 	m.ready = true
 	m.showHelp = true
 

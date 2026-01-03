@@ -20,10 +20,11 @@ const (
 	SectionMail
 	SectionLifecycle
 	SectionWorktrees
+	SectionPlugins
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 7
+const SectionCount = 8
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -41,6 +42,8 @@ func (s SidebarSection) String() string {
 		return "Lifecycle"
 	case SectionWorktrees:
 		return "Worktrees"
+	case SectionPlugins:
+		return "Plugins"
 	default:
 		return "Unknown"
 	}
@@ -296,6 +299,36 @@ func lifecycleEventBadge(eventType data.LifecycleEventType) string {
 	}
 }
 
+// pluginItem wraps data.Plugin for selection
+type pluginItem struct {
+	p data.Plugin
+}
+
+func (p pluginItem) ID() string { return p.p.Path }
+func (p pluginItem) Label() string {
+	status := "on"
+	if !p.p.Enabled {
+		status = "off"
+	}
+	if p.p.HasError {
+		status = "err"
+	}
+	scopePrefix := ""
+	if p.p.Scope != "town" {
+		scopePrefix = "[" + p.p.Scope + "] "
+	}
+	return fmt.Sprintf("%s%s (%s)", scopePrefix, p.p.Title, status)
+}
+func (p pluginItem) Status() string {
+	if p.p.HasError {
+		return "error"
+	}
+	if !p.p.Enabled {
+		return "disabled"
+	}
+	return "enabled"
+}
+
 // SidebarState manages sidebar list selection
 type SidebarState struct {
 	Section   SidebarSection
@@ -313,6 +346,7 @@ type SidebarState struct {
 	Mail            []mailItem
 	LifecycleEvents []lifecycleEventItem
 	Worktrees       []worktreeItem
+	Plugins         []pluginItem
 
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
@@ -438,6 +472,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Worktrees[i] = worktreeItem{wt}
 	}
 
+	// Update plugins
+	s.Plugins = make([]pluginItem, len(snap.Plugins))
+	for i, p := range snap.Plugins {
+		s.Plugins[i] = pluginItem{p}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -489,6 +529,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Worktrees))
 		for i, w := range s.Worktrees {
 			items[i] = w
+		}
+		return items
+	case SectionPlugins:
+		items := make([]SelectableItem, len(s.Plugins))
+		for i, p := range s.Plugins {
+			items[i] = p
 		}
 		return items
 	}
@@ -564,7 +610,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		innerHeight = 1
 	}
 
-	// Calculate height per section (4 sections)
+	// Calculate height per section (5 sections)
 	sectionHeight := (innerHeight - SectionCount) / SectionCount // -SectionCount for headers
 	if sectionHeight < 2 {
 		sectionHeight = 2
@@ -573,7 +619,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionRigs; sec <= SectionWorktrees; sec++ {
+	for sec := SectionRigs; sec <= SectionPlugins; sec++ {
 		isActive := state.Section == sec
 		headerText := sec.String()
 		// For convoys, show active/history toggle state
@@ -698,6 +744,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Worktrees))
 		for i, w := range state.Worktrees {
 			items[i] = w
+		}
+		return items
+	case SectionPlugins:
+		items := make([]SelectableItem, len(state.Plugins))
+		for i, p := range state.Plugins {
+			items[i] = p
 		}
 		return items
 	}
@@ -917,6 +969,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 	case SectionWorktrees:
 		if state.Selection >= 0 && state.Selection < len(state.Worktrees) {
 			return renderWorktreeDetails(state.Worktrees[state.Selection].wt, width)
+		}
+	case SectionPlugins:
+		if state.Selection >= 0 && state.Selection < len(state.Plugins) {
+			return renderPluginDetails(state.Plugins[state.Selection].p, width)
 		}
 	}
 
@@ -1340,6 +1396,61 @@ func renderLifecycleDetails(e data.LifecycleEvent, state *SidebarState, width in
 	// Quick actions hint
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle.Render("e: cycle type filter | g: filter by this agent | x: clear filters"))
+
+	return strings.Join(lines, "\n")
+}
+
+func renderPluginDetails(p data.Plugin, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Plugin"))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Name:    %s", p.Title))
+	lines = append(lines, fmt.Sprintf("Scope:   %s", p.Scope))
+
+	status := "Enabled"
+	if !p.Enabled {
+		status = "Disabled"
+	}
+	lines = append(lines, fmt.Sprintf("Status:  %s", status))
+
+	if p.GateType != "" {
+		lines = append(lines, fmt.Sprintf("Gate:    %s", p.GateType))
+	}
+	if p.Schedule != "" {
+		lines = append(lines, fmt.Sprintf("Schedule: %s", p.Schedule))
+	}
+
+	if p.Description != "" {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Description"))
+		// Wrap description
+		desc := p.Description
+		if len(desc) > width-2 {
+			desc = desc[:width-5] + "..."
+		}
+		lines = append(lines, desc)
+	}
+
+	// Last run info
+	if !p.LastRun.IsZero() {
+		lines = append(lines, "")
+		lines = append(lines, fmt.Sprintf("Last Run: %s", p.LastRun.Format("2006-01-02 15:04")))
+	}
+
+	// Error section
+	if p.HasError {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Error"))
+		errMsg := p.LastError
+		if len(errMsg) > width-2 {
+			errMsg = errMsg[:width-5] + "..."
+		}
+		lines = append(lines, mutedStyle.Render(errMsg))
+	}
+
+	// Actions hint
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Actions: e=toggle enabled"))
 
 	return strings.Join(lines, "\n")
 }

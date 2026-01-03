@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
 
 	"github.com/andyrewlee/perch/data"
@@ -36,6 +38,7 @@ const (
 	ActionStopAgent
 	ActionNudgeAgent
 	ActionMailAgent
+	ActionTogglePlugin
 )
 
 // Action represents a user-triggered action with its result.
@@ -262,6 +265,19 @@ func (r *ActionRunner) NudgeAgent(ctx context.Context, agentAddress, message str
 // Runs: gt mail send <agent-address> -s "<subject>" -m "<message>"
 func (r *ActionRunner) MailAgent(ctx context.Context, agentAddress, subject, message string) error {
 	return r.runCommand(ctx, "gt", "mail", "send", agentAddress, "-s", subject, "-m", message)
+}
+
+// TogglePlugin enables or disables a plugin by creating/removing a .disabled marker file.
+// pluginPath is the full path to the plugin directory.
+func (r *ActionRunner) TogglePlugin(ctx context.Context, pluginPath string) error {
+	disabledPath := filepath.Join(pluginPath, ".disabled")
+
+	if _, err := os.Stat(disabledPath); os.IsNotExist(err) {
+		// Plugin is enabled, disable it
+		return os.WriteFile(disabledPath, []byte("disabled\n"), 0644)
+	}
+	// Plugin is disabled, enable it by removing the marker
+	return os.Remove(disabledPath)
 }
 
 // runCommand executes a shell command and returns any error.

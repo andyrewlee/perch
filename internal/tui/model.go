@@ -69,6 +69,7 @@ type Model struct {
 	selectedRig    string
 	selectedAgent  string
 	selectedConvoy string // Currently selected convoy ID
+	selectedPlugin string
 
 	// Audit timeline for selected agent
 	auditTimeline       []data.AuditEntry
@@ -273,6 +274,8 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.NudgeAgent(ctx, target, input)
 		case ActionMailAgent:
 			err = m.actionRunner.MailAgent(ctx, target, input, extraInput)
+		case ActionTogglePlugin:
+			err = m.actionRunner.TogglePlugin(ctx, target)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -649,6 +652,16 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "H":
+		// Context-dependent: Handoff (Agents section) or toggle convoy history (Convoys section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionConvoys {
+			m.sidebar.ToggleConvoyHistory()
+			viewName := "active"
+			if m.sidebar.ShowConvoyHistory {
+				viewName = "history"
+			}
+			m.setStatus("Showing "+viewName+" convoys", false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
 		// Handoff selected agent's work
 		if m.selectedAgent == "" {
 			m.setStatus("No agent selected. Use j/k to select an agent.", true)
@@ -672,6 +685,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "m":
+		// Context-dependent: Mail agent (Agents section) or toggle mail read (Mail section)
+		if m.sidebar != nil && m.sidebar.Section == SectionMail {
+			// Toggle read/unread for selected mail (only in Mail section)
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Mail) {
+				m.setStatus("No mail selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mail := m.sidebar.Mail[m.sidebar.Selection].m
+			if mail.Read {
+				m.setStatus("Marking mail as unread...", false)
+				return m, m.mailActionCmd(ActionMarkMailUnread, mail.ID)
+			}
+			m.setStatus("Marking mail as read...", false)
+			return m, m.mailActionCmd(ActionMarkMailRead, mail.ID)
+		}
 		// Mail selected agent (opens input dialog)
 		if m.selectedAgent == "" {
 			m.setStatus("No agent selected. Use j/k to select an agent.", true)
@@ -731,7 +759,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionRigs
 			m.sidebar.Selection = 0
-			m.syncSelectedRig()
+			m.syncSelection()
 		}
 		return m, nil
 
@@ -768,24 +796,6 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "m":
-		// Toggle read/unread for selected mail (only in Mail section)
-		if m.sidebar.Section != SectionMail {
-			m.setStatus("Switch to Mail section (press 5) to manage mail", true)
-			return m, statusExpireCmd(3 * time.Second)
-		}
-		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Mail) {
-			m.setStatus("No mail selected", true)
-			return m, statusExpireCmd(3 * time.Second)
-		}
-		mail := m.sidebar.Mail[m.sidebar.Selection].m
-		if mail.Read {
-			m.setStatus("Marking mail as unread...", false)
-			return m, m.mailActionCmd(ActionMarkMailUnread, mail.ID)
-		}
-		m.setStatus("Marking mail as read...", false)
-		return m, m.mailActionCmd(ActionMarkMailRead, mail.ID)
-
 	case "y":
 		// Acknowledge selected mail (only in Mail section)
 		if m.sidebar.Section != SectionMail {
@@ -814,16 +824,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case "H":
-		// Toggle convoy history view (only when in Convoys section)
-		if m.focus == PanelSidebar && m.sidebar.Section == SectionConvoys {
-			m.sidebar.ToggleConvoyHistory()
-			viewName := "active"
-			if m.sidebar.ShowConvoyHistory {
-				viewName = "history"
-			}
-			m.setStatus("Showing "+viewName+" convoys", false)
-			return m, statusExpireCmd(2 * time.Second)
+	case "8":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionPlugins
+			m.sidebar.Selection = 0
+			m.updateSelectedFromSidebar()
 		}
 		return m, nil
 
@@ -840,6 +845,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
 			m.cycleLifecycleTypeFilter()
 			m.sidebar.UpdateFromSnapshot(m.snapshot)
+		}
+		// Toggle plugin enabled/disabled (only in Plugins section)
+		if m.sidebar != nil && m.sidebar.Section == SectionPlugins && m.selectedPlugin != "" {
+			m.setStatus("Toggling plugin...", false)
+			return m, m.actionCmd(ActionTogglePlugin, m.selectedPlugin)
 		}
 		return m, nil
 
@@ -1301,19 +1311,23 @@ func (m *Model) setStatus(text string, isError bool) {
 	m.statusMessage = &msg
 }
 
-// syncSelection updates selectedRig and selectedAgent based on sidebar selection.
+// syncSelection updates selectedRig, selectedAgent, and selectedPlugin based on sidebar selection.
 func (m *Model) syncSelection() {
 	if m.sidebar == nil {
 		return
 	}
-	if m.sidebar.Section == SectionRigs && len(m.sidebar.Rigs) > 0 {
-		if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Rigs) {
+	switch m.sidebar.Section {
+	case SectionRigs:
+		if len(m.sidebar.Rigs) > 0 && m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Rigs) {
 			m.selectedRig = m.sidebar.Rigs[m.sidebar.Selection].r.Name
 		}
-	}
-	if m.sidebar.Section == SectionAgents {
+	case SectionAgents:
 		if item := m.sidebar.SelectedItem(); item != nil {
 			m.selectedAgent = item.ID()
+		}
+	case SectionPlugins:
+		if item := m.sidebar.SelectedItem(); item != nil {
+			m.selectedPlugin = item.ID()
 		}
 	}
 }
@@ -1389,7 +1403,7 @@ func (m *Model) syncSelectedAgent() tea.Cmd {
 	return nil
 }
 
-// updateSelectedFromSidebar updates selectedRig and selectedAgent based on sidebar.
+// updateSelectedFromSidebar updates selectedRig, selectedAgent, and selectedPlugin based on sidebar.
 func (m *Model) updateSelectedFromSidebar() {
 	m.syncSelection()
 }
@@ -1441,6 +1455,8 @@ func actionName(action ActionType) string {
 		return "Remove worktree"
 	case ActionCreateWork:
 		return "Create work"
+	case ActionTogglePlugin:
+		return "Toggle plugin"
 	default:
 		return "Action"
 	}
@@ -1963,6 +1979,9 @@ func (m Model) renderFooter() string {
 		if m.sidebar != nil && m.sidebar.Section == SectionAgents {
 			helpItems = append(helpItems, "S: sling", "H: handoff", "K: kill", "n: nudge", "m: mail")
 		}
+		if m.sidebar != nil && m.sidebar.Section == SectionPlugins {
+			helpItems = append(helpItems, "e: toggle")
+		}
 		helpItems = append(helpItems, "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
@@ -2092,6 +2111,9 @@ func (m Model) renderHelpOverlay() string {
 		"            Press x to remove a worktree",
 		helpKeyStyle.Render("Beads") + "      Issue tracking (tasks, bugs, features)",
 		"",
+		helpKeyStyle.Render("Plugins") + "    Town/rig extensions run during patrol",
+		"            Automated tasks with cooldown, cron, or event gates",
+		"",
 		helpHeaderStyle.Render("Behind the Scenes"),
 		"",
 		helpKeyStyle.Render("Sessions") + "   Background processes for each agent",
@@ -2106,7 +2128,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-7") + "        Jump to section (1=Rigs...7=Worktrees)",
+		helpKeyStyle.Render("1-8") + "        Jump to section (1=Rigs...8=Plugins)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",
@@ -2131,6 +2153,10 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("K") + "          Kill/stop agent",
 		helpKeyStyle.Render("n") + "          Nudge agent with message",
 		helpKeyStyle.Render("m") + "          Mail agent",
+		"",
+		helpHeaderStyle.Render("Plugin Actions (when in Plugins section)"),
+		"",
+		helpKeyStyle.Render("e") + "          Toggle plugin enabled/disabled",
 		"",
 		helpKeyStyle.Render("?") + "          Show this help",
 		helpKeyStyle.Render("q") + "          Quit",
