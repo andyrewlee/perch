@@ -48,9 +48,10 @@ func (l *Loader) execJSON(ctx context.Context, dst any, args ...string) error {
 }
 
 // LoadTownStatus loads the complete town status.
+// Uses --fast to skip mail lookups for faster execution.
 func (l *Loader) LoadTownStatus(ctx context.Context) (*TownStatus, error) {
 	var status TownStatus
-	if err := l.execJSON(ctx, &status, "gt", "status", "--json"); err != nil {
+	if err := l.execJSON(ctx, &status, "gt", "status", "--json", "--fast"); err != nil {
 		return nil, fmt.Errorf("loading town status: %w", err)
 	}
 	return &status, nil

@@ -130,7 +130,7 @@ func (m Model) Init() tea.Cmd {
 
 // loadData loads data from the store
 func (m Model) loadData() tea.Msg {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	snap := m.store.Refresh(ctx)
@@ -487,7 +487,21 @@ func (m Model) renderOverview(width, height int) string {
 }
 
 func (m Model) buildOverviewContent() string {
-	if m.snapshot == nil || m.snapshot.Town == nil {
+	if m.snapshot == nil {
+		return mutedStyle.Render("Loading...")
+	}
+	if m.snapshot.Town == nil {
+		// Town failed to load - surface the error
+		if m.snapshot.HasErrors() {
+			errMsg := "Failed to load town status"
+			for _, err := range m.snapshot.Errors {
+				if err != nil {
+					errMsg = err.Error()
+					break
+				}
+			}
+			return statusErrorStyle.Render("Error: " + errMsg)
+		}
 		return mutedStyle.Render("Loading...")
 	}
 
