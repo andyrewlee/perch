@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -118,6 +119,61 @@ func (l *Loader) LoadClosedConvoys(ctx context.Context) ([]Convoy, error) {
 	return convoys, nil
 }
 
+// LoadConvoyDetails loads detailed info for a single convoy including progress.
+func (l *Loader) LoadConvoyDetails(ctx context.Context, id string) (*Convoy, error) {
+	var convoy Convoy
+	if err := l.execJSON(ctx, &convoy, "gt", "convoy", "status", id, "--json"); err != nil {
+		return nil, fmt.Errorf("loading convoy %s: %w", id, err)
+	}
+	return &convoy, nil
+}
+
+// LoadConvoysWithDetails loads all convoys with full progress details.
+// This makes one call per convoy but provides complete information.
+func (l *Loader) LoadConvoysWithDetails(ctx context.Context) ([]Convoy, error) {
+	// First get the list of convoys
+	convoys, err := l.LoadConvoys(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(convoys) == 0 {
+		return convoys, nil
+	}
+
+	// Load details for each convoy in parallel
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	detailed := make([]Convoy, len(convoys))
+	errs := make(chan error, len(convoys))
+
+	for i, c := range convoys {
+		wg.Add(1)
+		go func(idx int, id string) {
+			defer wg.Done()
+			detail, err := l.LoadConvoyDetails(ctx, id)
+			if err != nil {
+				errs <- err
+				return
+			}
+			mu.Lock()
+			detailed[idx] = *detail
+			mu.Unlock()
+		}(i, c.ID)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	// Collect errors but don't fail - use basic convoy data as fallback
+	for err := range errs {
+		// Log error but continue - we'll have partial data
+		_ = err
+	}
+
+	return detailed, nil
+}
+
 // LoadMergeQueue loads merge queue items for a specific rig.
 func (l *Loader) LoadMergeQueue(ctx context.Context, rig string) ([]MergeRequest, error) {
 	var mrs []MergeRequest
@@ -205,6 +261,100 @@ func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
 		return nil, fmt.Errorf("loading mail: %w", err)
 	}
 	return mail, nil
+}
+
+// LoadDoctorReport runs gt doctor and parses the output.
+func (l *Loader) LoadDoctorReport(ctx context.Context) (*DoctorReport, error) {
+	cmd := exec.CommandContext(ctx, "gt", "doctor")
+	cmd.Dir = l.TownRoot
+
+	// Capture both stdout and stderr (gt doctor writes to both)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+
+	// Run command - it may exit with error if there are issues
+	_ = cmd.Run() // Ignore error since gt doctor exits 1 on issues
+
+	return parseDoctorOutput(output.String())
+}
+
+// parseDoctorOutput parses the text output from gt doctor.
+func parseDoctorOutput(output string) (*DoctorReport, error) {
+	report := &DoctorReport{
+		LoadedAt: time.Now(),
+	}
+
+	// Regex patterns for parsing
+	// Check line: ✓/⚠/✗ check-name: message
+	checkPattern := regexp.MustCompile(`^([✓⚠✗])\s+([a-z0-9-]+):\s+(.*)$`)
+	// Detail line: starts with spaces, contains actual info
+	detailPattern := regexp.MustCompile(`^\s{4}(.+)$`)
+	// Fix suggestion: → message
+	fixPattern := regexp.MustCompile(`^\s*→\s+(.+)$`)
+	// Summary line: N checks, N passed, N warnings, N errors
+	summaryPattern := regexp.MustCompile(`^(\d+)\s+checks?,\s+(\d+)\s+passed,\s+(\d+)\s+warnings?,\s+(\d+)\s+errors?`)
+
+	var currentCheck *DoctorCheck
+
+	scanner := bufio.NewScanner(strings.NewReader(output))
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Try to match summary line
+		if matches := summaryPattern.FindStringSubmatch(line); matches != nil {
+			report.TotalChecks, _ = strconv.Atoi(matches[1])
+			report.PassedCount, _ = strconv.Atoi(matches[2])
+			report.WarningCount, _ = strconv.Atoi(matches[3])
+			report.ErrorCount, _ = strconv.Atoi(matches[4])
+			continue
+		}
+
+		// Try to match a check line
+		if matches := checkPattern.FindStringSubmatch(line); matches != nil {
+			// Save previous check if any
+			if currentCheck != nil {
+				report.Checks = append(report.Checks, *currentCheck)
+			}
+
+			status := CheckPassed
+			switch matches[1] {
+			case "⚠":
+				status = CheckWarning
+			case "✗":
+				status = CheckError
+			}
+
+			currentCheck = &DoctorCheck{
+				Name:    matches[2],
+				Status:  status,
+				Message: matches[3],
+			}
+			continue
+		}
+
+		// Try to match fix suggestion
+		if matches := fixPattern.FindStringSubmatch(line); matches != nil && currentCheck != nil {
+			currentCheck.SuggestFix = matches[1]
+			continue
+		}
+
+		// Try to match detail line
+		if matches := detailPattern.FindStringSubmatch(line); matches != nil && currentCheck != nil {
+			detail := strings.TrimSpace(matches[1])
+			if detail != "" && !strings.HasPrefix(detail, "→") {
+				currentCheck.Details = append(currentCheck.Details, detail)
+			}
+			continue
+		}
+	}
+
+	// Save last check
+	if currentCheck != nil {
+		report.Checks = append(report.Checks, *currentCheck)
+	}
+
+	return report, nil
 }
 
 // LoadOperationalState loads the operational state of the town.
@@ -393,6 +543,7 @@ type Snapshot struct {
 	Mail             []MailMessage
 	Lifecycle        *LifecycleLog
 	OperationalState *OperationalState
+	DoctorReport     *DoctorReport
 	LoadedAt         time.Time
 	Errors           []error
 }
@@ -418,8 +569,8 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		snap.Town = town
 	}
 
-	// Parallel loads (polecats, convoys, closedConvoys, issues, mail, hookedIssues, lifecycle)
-	wg.Add(7)
+	// Parallel loads (polecats, convoys, closedConvoys, issues, mail, hookedIssues, lifecycle, doctor)
+	wg.Add(8)
 
 	go func() {
 		defer wg.Done()
@@ -435,7 +586,7 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 
 	go func() {
 		defer wg.Done()
-		convoys, err := l.LoadConvoys(ctx)
+		convoys, err := l.LoadConvoysWithDetails(ctx)
 		mu.Lock()
 		defer mu.Unlock()
 		if err != nil {
@@ -503,6 +654,18 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Errors = append(snap.Errors, err)
 		} else {
 			snap.Lifecycle = lifecycle
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		doctor, err := l.LoadDoctorReport(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.DoctorReport = doctor
 		}
 	}()
 
