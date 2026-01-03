@@ -3,6 +3,8 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -70,8 +72,19 @@ type Model struct {
 	queueHealthData  map[string]QueueHealth // Per-rig queue health
 }
 
-// DefaultTownRoot is the default Gas Town root directory.
-const DefaultTownRoot = "/Users/andrewlee/gt"
+// GetDefaultTownRoot returns the default Gas Town root directory.
+// It checks GT_ROOT env var first, then falls back to $HOME/gt.
+func GetDefaultTownRoot() string {
+	if root := os.Getenv("GT_ROOT"); root != "" {
+		return root
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		// Fallback to a reasonable default if we can't get home dir
+		return "/tmp/gt"
+	}
+	return filepath.Join(home, "gt")
+}
 
 // DefaultRefreshInterval is how often to auto-refresh data.
 const DefaultRefreshInterval = 10 * time.Second
@@ -87,7 +100,7 @@ type tickMsg time.Time
 
 // New creates a new Model with the default town root.
 func New() Model {
-	return NewWithTownRoot(DefaultTownRoot)
+	return NewWithTownRoot(GetDefaultTownRoot())
 }
 
 // NewWithTownRoot creates a new Model with a custom town root.

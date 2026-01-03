@@ -7,7 +7,7 @@ import (
 )
 
 func TestTickCmdReturnsNilWhenDisabled(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.refreshInterval = 0
 
 	cmd := m.tickCmd()
@@ -17,7 +17,7 @@ func TestTickCmdReturnsNilWhenDisabled(t *testing.T) {
 }
 
 func TestTickCmdReturnsCommandWhenEnabled(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.refreshInterval = 10 * time.Second
 
 	cmd := m.tickCmd()
@@ -33,9 +33,9 @@ func TestDefaultRefreshInterval(t *testing.T) {
 }
 
 func TestNewModelHasRefreshInterval(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	if m.refreshInterval != DefaultRefreshInterval {
-		t.Errorf("New model refreshInterval = %v, want %v", m.refreshInterval, DefaultRefreshInterval)
+		t.Errorf("NewTestModel refreshInterval = %v, want %v", m.refreshInterval, DefaultRefreshInterval)
 	}
 }
 
@@ -67,7 +67,7 @@ func TestNewWithTownRootShowsSetupForMissingTown(t *testing.T) {
 }
 
 func TestTickMsgTriggersRefresh(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.isRefreshing = false
 
@@ -83,7 +83,7 @@ func TestTickMsgTriggersRefresh(t *testing.T) {
 }
 
 func TestTickMsgWhileRefreshingOnlySchedulesTick(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.isRefreshing = true
 
@@ -101,7 +101,7 @@ func TestTickMsgWhileRefreshingOnlySchedulesTick(t *testing.T) {
 }
 
 func TestRefreshMsgUpdatesState(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.isRefreshing = true
 
@@ -117,7 +117,7 @@ func TestRefreshMsgUpdatesState(t *testing.T) {
 }
 
 func TestRenderHUDShowsDisconnected(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.width = 80
 
@@ -133,7 +133,7 @@ func TestRenderHUDShowsDisconnected(t *testing.T) {
 }
 
 func TestRenderHUDShowsRefreshing(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.width = 80
 	m.isRefreshing = true
@@ -145,7 +145,7 @@ func TestRenderHUDShowsRefreshing(t *testing.T) {
 }
 
 func TestRenderHUDShowsConnected(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.width = 80
 	m.lastRefresh = time.Now()
@@ -157,7 +157,7 @@ func TestRenderHUDShowsConnected(t *testing.T) {
 }
 
 func TestRenderHUDShowsErrors(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.ready = true
 	m.width = 80
 	m.errorCount = 3
