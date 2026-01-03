@@ -19,6 +19,9 @@ type AttachDialog struct {
 	townName    string
 	rigCount    int
 	suggestions []string
+
+	// Dependency check results
+	depCheck *DependencyCheckResult
 }
 
 // TownJSON represents the structure of mayor/town.json
@@ -42,8 +45,12 @@ func NewAttachDialog() *AttachDialog {
 		ti.SetValue(filepath.Join(home, "gt"))
 	}
 
+	// Check dependencies upfront
+	depCheck := CheckDependencies(nil, home)
+
 	d := &AttachDialog{
-		input: ti,
+		input:    ti,
+		depCheck: depCheck,
 	}
 	d.validate()
 	return d
@@ -194,9 +201,15 @@ func findSuggestions(path string) []string {
 	return suggestions
 }
 
-// IsValid returns whether the current path is a valid town.
+// IsValid returns whether the current path is a valid town and all dependencies are available.
 func (d *AttachDialog) IsValid() bool {
-	return d.validTown
+	return d.validTown && (d.depCheck == nil || d.depCheck.AllFound)
+}
+
+// RecheckDependencies rechecks if required tools are available.
+func (d *AttachDialog) RecheckDependencies() {
+	home, _ := os.UserHomeDir()
+	d.depCheck = CheckDependencies(nil, home)
 }
 
 // ExpandedPath returns the fully expanded path.
@@ -214,7 +227,7 @@ func (d *AttachDialog) Render(width, height int) string {
 	if dialogWidth > 80 {
 		dialogWidth = 80
 	}
-	dialogHeight := 16
+	dialogHeight := 22 // Increased to accommodate dependency info
 	if dialogHeight > height-4 {
 		dialogHeight = height - 4
 	}
@@ -222,16 +235,35 @@ func (d *AttachDialog) Render(width, height int) string {
 	// Title
 	title := helpTitleStyle.Render("Attach to Existing Town")
 
-	// Instructions
-	instructions := mutedStyle.Render("Enter the path to a Gas Town root directory.")
+	// Dependency status section
+	var depSection string
+	hasMissingDeps := d.depCheck != nil && !d.depCheck.AllFound
+	if d.depCheck != nil {
+		depSection = headerStyle.Render("Required Tools:") + "\n"
+		depSection += RenderDependencyStatus(d.depCheck)
+		if hasMissingDeps {
+			depSection += "\n\n" + RenderInstallGuidance(d.depCheck)
+		}
+	}
 
-	// Input field
+	// Instructions
+	var instructions string
+	if hasMissingDeps {
+		instructions = formErrorStyle.Render("Please install missing tools before attaching.")
+	} else {
+		instructions = mutedStyle.Render("Enter the path to a Gas Town root directory.")
+	}
+
+	// Input field (dimmed if deps missing)
 	inputLabel := headerStyle.Render("Town Root:")
 	inputField := d.input.View()
 
 	// Validation status
 	var status string
-	if d.validTown {
+	if hasMissingDeps {
+		// Don't show town validation if deps are missing
+		status = ""
+	} else if d.validTown {
 		status = statusStyle.Render("  Valid town: " + d.townName)
 		if d.rigCount > 0 {
 			status += mutedStyle.Render(" (" + itoa(d.rigCount) + " rigs)")
@@ -244,7 +276,7 @@ func (d *AttachDialog) Render(width, height int) string {
 
 	// Suggestions
 	var suggestionsStr string
-	if len(d.suggestions) > 0 {
+	if !hasMissingDeps && len(d.suggestions) > 0 {
 		suggestionsStr = mutedStyle.Render("\n  Suggestions:")
 		for _, s := range d.suggestions {
 			suggestionsStr += "\n    " + mutedStyle.Render(s)
@@ -252,11 +284,18 @@ func (d *AttachDialog) Render(width, height int) string {
 	}
 
 	// Help text
-	helpText := mutedStyle.Render("\nEnter: Attach  |  Esc: Cancel  |  Tab: Autocomplete")
+	var helpText string
+	if hasMissingDeps {
+		helpText = mutedStyle.Render("\nr: Recheck  |  Esc: Cancel")
+	} else {
+		helpText = mutedStyle.Render("\nEnter: Attach  |  Esc: Cancel  |  Tab: Autocomplete")
+	}
 
 	// Build content
 	content := strings.Join([]string{
 		title,
+		"",
+		depSection,
 		"",
 		instructions,
 		"",

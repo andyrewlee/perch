@@ -879,6 +879,11 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Attach cancelled", false)
 		return m, statusExpireCmd(2 * time.Second)
 
+	case "r":
+		// Recheck dependencies
+		m.attachDialog.RecheckDependencies()
+		return m, nil
+
 	case "tab":
 		// Autocomplete - use first suggestion if available
 		if len(m.attachDialog.suggestions) > 0 {
@@ -1060,6 +1065,22 @@ func (m *Model) updateQueueHealth(snap *data.Snapshot) {
 	}
 }
 
+// buildSidebarOptions creates sidebar options with queue health info.
+func (m Model) buildSidebarOptions() *SidebarOptions {
+	opts := &SidebarOptions{}
+
+	// Find the most recent merge time across all rigs
+	for _, health := range m.queueHealthData {
+		if !health.LastMergeTime.IsZero() {
+			if opts.LastMergeTime.IsZero() || health.LastMergeTime.After(opts.LastMergeTime) {
+				opts.LastMergeTime = health.LastMergeTime
+			}
+		}
+	}
+
+	return opts
+}
+
 // View implements tea.Model
 func (m Model) View() string {
 	// Show setup wizard if active
@@ -1111,7 +1132,10 @@ func (m Model) renderLayout() string {
 
 	// Render panels
 	overview := m.renderOverview(m.width, overviewHeight)
-	sidebar := RenderSidebar(m.sidebar, m.snapshot, sidebarWidth, bodyHeight, m.focus == PanelSidebar)
+
+	// Build sidebar options with queue health info
+	sidebarOpts := m.buildSidebarOptions()
+	sidebar := RenderSidebar(m.sidebar, m.snapshot, sidebarWidth, bodyHeight, m.focus == PanelSidebar, sidebarOpts)
 	details := RenderDetails(m.sidebar, m.snapshot, detailsWidth, bodyHeight, m.focus == PanelDetails)
 	footer := m.renderFooter()
 
