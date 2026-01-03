@@ -38,6 +38,9 @@ type Model struct {
 	// Sidebar state
 	sidebar *SidebarState
 
+	// Health check report
+	doctorReport *data.DoctorReport
+
 	// Ready indicates the terminal size is known
 	ready bool
 
@@ -62,8 +65,9 @@ type Model struct {
 	rigSettingsForm *RigSettingsForm
 
 	// Selected items for actions
-	selectedRig   string
-	selectedAgent string
+	selectedRig    string
+	selectedAgent  string
+	selectedConvoy string // Currently selected convoy ID
 
 	// Audit timeline for selected agent
 	auditTimeline       []data.AuditEntry
@@ -788,6 +792,98 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renderHealthDetails renders detailed health check information.
+func (m Model) renderHealthDetails() string {
+	if m.doctorReport == nil {
+		return "Health checks not yet loaded.\n\nPress 'r' to refresh."
+	}
+
+	var b strings.Builder
+
+	// Summary header
+	b.WriteString("Health Check Report\n")
+	b.WriteString("═══════════════════\n\n")
+	b.WriteString(fmt.Sprintf("Total checks: %d\n", m.doctorReport.TotalChecks))
+	b.WriteString(fmt.Sprintf("Passed: %d  ", m.doctorReport.PassedCount))
+	b.WriteString(fmt.Sprintf("Warnings: %d  ", m.doctorReport.WarningCount))
+	b.WriteString(fmt.Sprintf("Errors: %d\n\n", m.doctorReport.ErrorCount))
+
+	// Show errors first
+	if len(m.doctorReport.Errors()) > 0 {
+		b.WriteString("❌ ERRORS\n")
+		b.WriteString("─────────\n")
+		for _, check := range m.doctorReport.Errors() {
+			b.WriteString(fmt.Sprintf("✗ %s: %s\n", check.Name, check.Message))
+			for _, detail := range check.Details {
+				b.WriteString(fmt.Sprintf("    %s\n", detail))
+			}
+			if check.SuggestFix != "" {
+				b.WriteString(fmt.Sprintf("  → %s\n", check.SuggestFix))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// Show warnings
+	if len(m.doctorReport.Warnings()) > 0 {
+		b.WriteString("⚠️  WARNINGS\n")
+		b.WriteString("───────────\n")
+		for _, check := range m.doctorReport.Warnings() {
+			b.WriteString(fmt.Sprintf("⚠ %s: %s\n", check.Name, check.Message))
+			for _, detail := range check.Details {
+				b.WriteString(fmt.Sprintf("    %s\n", detail))
+			}
+			if check.SuggestFix != "" {
+				b.WriteString(fmt.Sprintf("  → %s\n", check.SuggestFix))
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	// If no issues
+	if !m.doctorReport.HasIssues() {
+		b.WriteString("✓ All health checks passed!\n")
+	}
+
+	return b.String()
+}
+
+// renderConvoyDetails renders detailed view of a convoy for the details panel.
+func (m Model) renderConvoyDetails(convoy *data.Convoy) string {
+	var b strings.Builder
+
+	// Header
+	b.WriteString(fmt.Sprintf("Convoy: %s\n", convoy.ID))
+	b.WriteString(fmt.Sprintf("Title: %s\n", convoy.Title))
+	b.WriteString(fmt.Sprintf("Status: %s\n", convoy.Status))
+	b.WriteString(fmt.Sprintf("Progress: %d/%d (%d%%)\n", convoy.Completed, convoy.Total, convoy.Progress()))
+	b.WriteString("\n")
+
+	// Tracked issues
+	if len(convoy.Tracked) > 0 {
+		b.WriteString("Tracked Issues:\n")
+		for _, t := range convoy.Tracked {
+			statusIcon := "○"
+			switch t.Status {
+			case "in_progress":
+				statusIcon = "▶"
+			case "hooked":
+				statusIcon = "⊙"
+			case "closed":
+				statusIcon = "✓"
+			}
+			b.WriteString(fmt.Sprintf("  %s %s: %s\n", statusIcon, t.ID, t.Title))
+			if t.Worker != "" {
+				b.WriteString(fmt.Sprintf("    Worker: %s (%s)\n", t.Worker, t.WorkerAge))
+			}
+		}
+	} else {
+		b.WriteString("No tracked issues.\n")
+	}
+
+	return b.String()
+}
+
 // handleConfirmKey handles key presses when a confirmation dialog is shown.
 func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -1221,6 +1317,14 @@ func (m *Model) updateQueueHealth(snap *data.Snapshot) {
 		}
 
 		m.queueHealthData[rigName] = health
+	}
+
+	// Update doctor report from snapshot
+	m.doctorReport = snap.DoctorReport
+
+	// Set default convoy selection if none and we have convoys
+	if m.selectedConvoy == "" && m.sidebar != nil && len(m.sidebar.Convoys) > 0 {
+		m.selectedConvoy = m.sidebar.Convoys[0].ID()
 	}
 }
 

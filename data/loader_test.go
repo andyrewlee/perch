@@ -366,6 +366,246 @@ func TestSplitAgentAddress(t *testing.T) {
 	}
 }
 
+func TestConvoyProgress(t *testing.T) {
+	tests := []struct {
+		name       string
+		convoy     Convoy
+		wantPct    int
+		wantActive bool
+	}{
+		{
+			name: "empty convoy",
+			convoy: Convoy{
+				ID:        "test-1",
+				Status:    "open",
+				Completed: 0,
+				Total:     0,
+			},
+			wantPct:    0,
+			wantActive: true, // status is "open"
+		},
+		{
+			name: "half complete",
+			convoy: Convoy{
+				ID:        "test-2",
+				Status:    "open",
+				Completed: 3,
+				Total:     6,
+			},
+			wantPct:    50,
+			wantActive: true, // status is "open"
+		},
+		{
+			name: "all complete",
+			convoy: Convoy{
+				ID:        "test-3",
+				Status:    "closed",
+				Completed: 5,
+				Total:     5,
+			},
+			wantPct:    100,
+			wantActive: false, // status is "closed"
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.convoy.Progress()
+			if got != tt.wantPct {
+				t.Errorf("Progress() = %d, want %d", got, tt.wantPct)
+			}
+			gotActive := tt.convoy.IsActive()
+			if gotActive != tt.wantActive {
+				t.Errorf("IsActive() = %v, want %v", gotActive, tt.wantActive)
+			}
+		})
+	}
+}
+
+func TestConvoyHasActiveWork(t *testing.T) {
+	tests := []struct {
+		name   string
+		convoy Convoy
+		want   bool
+	}{
+		{
+			name: "no tracked issues",
+			convoy: Convoy{
+				ID:      "test-1",
+				Tracked: nil,
+			},
+			want: false,
+		},
+		{
+			name: "active with in_progress",
+			convoy: Convoy{
+				ID: "test-2",
+				Tracked: []TrackedIssue{
+					{ID: "a", Status: "closed"},
+					{ID: "b", Status: "in_progress"},
+					{ID: "c", Status: "open"},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "active with hooked",
+			convoy: Convoy{
+				ID: "test-3",
+				Tracked: []TrackedIssue{
+					{ID: "a", Status: "hooked"},
+					{ID: "b", Status: "open"},
+				},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.convoy.HasActiveWork()
+			if got != tt.want {
+				t.Errorf("HasActiveWork() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseDoctorOutput(t *testing.T) {
+	input := `✓ town-config-exists: mayor/town.json exists
+✓ town-config-valid: mayor/town.json valid (name=gt, version=2)
+⚠ town-git: Town root is not under version control
+    Your town harness contains personal configuration
+    → Run 'git init' in your town root
+✗ bd-daemon: bd daemon failed to start
+    Error: not in a git repository
+    → Check 'bd daemon --status' and logs
+
+38 checks, 30 passed, 7 warnings, 1 errors`
+
+	report, err := parseDoctorOutput(input)
+	if err != nil {
+		t.Fatalf("parseDoctorOutput: %v", err)
+	}
+
+	// Check summary
+	if report.TotalChecks != 38 {
+		t.Errorf("TotalChecks = %d, want 38", report.TotalChecks)
+	}
+	if report.PassedCount != 30 {
+		t.Errorf("PassedCount = %d, want 30", report.PassedCount)
+	}
+	if report.WarningCount != 7 {
+		t.Errorf("WarningCount = %d, want 7", report.WarningCount)
+	}
+	if report.ErrorCount != 1 {
+		t.Errorf("ErrorCount = %d, want 1", report.ErrorCount)
+	}
+
+	// Check parsed checks
+	if len(report.Checks) != 4 {
+		t.Errorf("len(Checks) = %d, want 4", len(report.Checks))
+	}
+
+	// Verify first check (passed)
+	if report.Checks[0].Name != "town-config-exists" {
+		t.Errorf("Checks[0].Name = %q, want 'town-config-exists'", report.Checks[0].Name)
+	}
+	if report.Checks[0].Status != CheckPassed {
+		t.Errorf("Checks[0].Status = %v, want CheckPassed", report.Checks[0].Status)
+	}
+
+	// Verify warning check
+	warningCheck := report.Checks[2]
+	if warningCheck.Name != "town-git" {
+		t.Errorf("Warning check name = %q, want 'town-git'", warningCheck.Name)
+	}
+	if warningCheck.Status != CheckWarning {
+		t.Errorf("Warning check status = %v, want CheckWarning", warningCheck.Status)
+	}
+	if warningCheck.SuggestFix == "" {
+		t.Error("Warning check should have SuggestFix")
+	}
+
+	// Verify error check
+	errorCheck := report.Checks[3]
+	if errorCheck.Name != "bd-daemon" {
+		t.Errorf("Error check name = %q, want 'bd-daemon'", errorCheck.Name)
+	}
+	if errorCheck.Status != CheckError {
+		t.Errorf("Error check status = %v, want CheckError", errorCheck.Status)
+	}
+}
+
+func TestDoctorReportHelpers(t *testing.T) {
+	report := &DoctorReport{
+		Checks: []DoctorCheck{
+			{Name: "e1", Status: CheckError},
+			{Name: "w1", Status: CheckWarning},
+			{Name: "w2", Status: CheckWarning},
+			{Name: "p1", Status: CheckPassed},
+		},
+		ErrorCount:   1,
+		WarningCount: 2,
+		PassedCount:  1,
+	}
+
+	if !report.HasIssues() {
+		t.Error("HasIssues should be true")
+	}
+
+	errors := report.Errors()
+	if len(errors) != 1 {
+		t.Errorf("len(Errors()) = %d, want 1", len(errors))
+	}
+
+	warnings := report.Warnings()
+	if len(warnings) != 2 {
+		t.Errorf("len(Warnings()) = %d, want 2", len(warnings))
+	}
+
+	// Test report with no issues
+	okReport := &DoctorReport{
+		ErrorCount:   0,
+		WarningCount: 0,
+	}
+	if okReport.HasIssues() {
+		t.Error("HasIssues should be false for healthy report")
+	}
+}
+
+func TestLoadConvoysWithDetails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	townRoot := os.Getenv("GT_ROOT")
+	if townRoot == "" {
+		townRoot = "/Users/andrewlee/gt"
+		if _, err := os.Stat(townRoot); os.IsNotExist(err) {
+			t.Skip("GT_ROOT not set and default town not found")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	loader := NewLoader(townRoot)
+	convoys, err := loader.LoadConvoysWithDetails(ctx)
+	if err != nil {
+		t.Fatalf("LoadConvoysWithDetails: %v", err)
+	}
+
+	t.Logf("Found %d convoys with details", len(convoys))
+	for _, c := range convoys {
+		t.Logf("  %s: %s (%s) - %d/%d (%d%%) active=%v",
+			c.ID, c.Title, c.Status, c.Completed, c.Total, c.Progress(), c.IsActive())
+		for _, tr := range c.Tracked {
+			t.Logf("    [%s] %s: %s", tr.Status, tr.ID, tr.Title)
+		}
+	}
+}
+
 func TestStoreRefresh(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

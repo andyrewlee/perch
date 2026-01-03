@@ -81,17 +81,50 @@ type Polecat struct {
 }
 
 // Convoy represents a batch of coordinated work.
-// Loaded via: gt convoy list --json
+// Loaded via: gt convoy list --json (basic) or gt convoy status <id> --json (detailed)
 type Convoy struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
+	// Progress fields (populated from gt convoy status --json)
+	Completed int            `json:"completed,omitempty"`
+	Total     int            `json:"total,omitempty"`
+	Tracked   []TrackedIssue `json:"tracked,omitempty"`
+}
+
+// TrackedIssue represents an issue tracked by a convoy.
+type TrackedIssue struct {
+	ID         string `json:"id"`
+	Title      string `json:"title"`
+	Status     string `json:"status"`
+	IssueType  string `json:"issue_type"`
+	Assignee   string `json:"assignee,omitempty"`
+	Worker     string `json:"worker,omitempty"`
+	WorkerAge  string `json:"worker_age,omitempty"`
+}
+
+// Progress returns the completion percentage (0-100).
+func (c *Convoy) Progress() int {
+	if c.Total == 0 {
+		return 0
+	}
+	return c.Completed * 100 / c.Total
 }
 
 // IsActive returns true if the convoy is open/active.
 func (c Convoy) IsActive() bool {
 	return c.Status == "open"
+}
+
+// HasActiveWork returns true if the convoy has in-progress or hooked issues.
+func (c *Convoy) HasActiveWork() bool {
+	for _, t := range c.Tracked {
+		if t.Status == "in_progress" || t.Status == "hooked" {
+			return true
+		}
+	}
+	return false
 }
 
 // IsLanded returns true if the convoy is closed/landed.
@@ -236,8 +269,8 @@ func (o *OperationalState) Summary() string {
 // Loaded via: gt audit --actor=<addr> --json
 type AuditEntry struct {
 	Timestamp time.Time `json:"timestamp"`
-	Source    string    `json:"source"`  // events, townlog, git, beads
-	Type      string    `json:"type"`    // sling, session_start, done, kill, commit, etc.
+	Source    string    `json:"source"` // events, townlog, git, beads
+	Type      string    `json:"type"`   // sling, session_start, done, kill, commit, etc.
 	Actor     string    `json:"actor"`
 	Summary   string    `json:"summary"`
 }
@@ -298,4 +331,60 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string {
 	return e.Field + ": " + e.Message
+}
+
+// CheckStatus represents the result status of a doctor check.
+type CheckStatus string
+
+const (
+	CheckPassed  CheckStatus = "passed"
+	CheckWarning CheckStatus = "warning"
+	CheckError   CheckStatus = "error"
+)
+
+// DoctorCheck represents a single health check from gt doctor.
+// Loaded by parsing gt doctor output (no JSON available).
+type DoctorCheck struct {
+	Name       string      `json:"name"`
+	Status     CheckStatus `json:"status"`
+	Message    string      `json:"message"`
+	Details    []string    `json:"details,omitempty"`
+	SuggestFix string      `json:"suggest_fix,omitempty"`
+}
+
+// DoctorReport represents the full gt doctor output.
+type DoctorReport struct {
+	Checks       []DoctorCheck `json:"checks"`
+	TotalChecks  int           `json:"total_checks"`
+	PassedCount  int           `json:"passed_count"`
+	WarningCount int           `json:"warning_count"`
+	ErrorCount   int           `json:"error_count"`
+	LoadedAt     time.Time     `json:"loaded_at"`
+}
+
+// HasIssues returns true if there are any warnings or errors.
+func (r *DoctorReport) HasIssues() bool {
+	return r.WarningCount > 0 || r.ErrorCount > 0
+}
+
+// Errors returns only the checks with error status.
+func (r *DoctorReport) Errors() []DoctorCheck {
+	var errs []DoctorCheck
+	for _, c := range r.Checks {
+		if c.Status == CheckError {
+			errs = append(errs, c)
+		}
+	}
+	return errs
+}
+
+// Warnings returns only the checks with warning status.
+func (r *DoctorReport) Warnings() []DoctorCheck {
+	var warns []DoctorCheck
+	for _, c := range r.Checks {
+		if c.Status == CheckWarning {
+			warns = append(warns, c)
+		}
+	}
+	return warns
 }
