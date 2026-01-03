@@ -332,6 +332,24 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
 		return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
 
+	case "n":
+		// Nudge polecat to resolve merge issues
+		if m.sidebar.Section != SectionMergeQueue {
+			m.setStatus("Switch to Merge Queue section (press 2) to nudge", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+			m.setStatus("No merge request selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		mr := m.sidebar.MRs[m.sidebar.Selection]
+		if !mr.mr.HasConflicts && !mr.mr.NeedsRebase {
+			m.setStatus("MR has no conflicts or rebase needed", false)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.setStatus("Nudging "+mr.mr.Worker+"...", false)
+		return m, m.nudgeCmd(mr.rig, mr.mr.Worker, mr.mr.Branch, mr.mr.HasConflicts)
+
 	case "a":
 		// Open add rig form
 		m.addRigForm = NewAddRigForm()
@@ -449,6 +467,17 @@ func (m Model) addRigCmd(name, url, prefix string) tea.Cmd {
 	}
 }
 
+// nudgeCmd creates a command that nudges a polecat to resolve merge issues.
+func (m Model) nudgeCmd(rig, worker, branch string, hasConflicts bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.NudgePolecat(ctx, rig, worker, branch, hasConflicts)
+		return actionCompleteMsg{action: ActionNudgePolecat, target: worker, err: err}
+	}
+}
+
 // handleActionComplete processes the result of an action.
 func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -496,6 +525,8 @@ func actionName(action ActionType) string {
 		return "Open logs"
 	case ActionAddRig:
 		return "Add rig"
+	case ActionNudgePolecat:
+		return "Nudge"
 	default:
 		return "Action"
 	}
@@ -652,6 +683,9 @@ func (m Model) renderFooter() string {
 		switch m.focus {
 		case PanelSidebar:
 			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-4: jump")
+			if m.sidebar.Section == SectionMergeQueue {
+				helpItems = append(helpItems, "n: nudge")
+			}
 		}
 		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
@@ -783,6 +817,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
 		helpKeyStyle.Render("1-4") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents)",
 		helpKeyStyle.Render("a") + "          Add new rig",
+		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",

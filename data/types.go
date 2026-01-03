@@ -87,12 +87,16 @@ type Convoy struct {
 // MergeRequest represents an item in the merge queue.
 // Loaded via: gt mq list <rig> --json
 type MergeRequest struct {
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Status   string `json:"status"`
-	Worker   string `json:"worker"`
-	Branch   string `json:"branch"`
-	Priority int    `json:"priority"`
+	ID           string `json:"id"`
+	Title        string `json:"title"`
+	Status       string `json:"status"`
+	Worker       string `json:"worker"`
+	Branch       string `json:"branch"`
+	Priority     int    `json:"priority"`
+	HasConflicts bool   `json:"has_conflicts"`
+	NeedsRebase  bool   `json:"needs_rebase"`
+	ConflictInfo string `json:"conflict_info,omitempty"`
+	LastChecked  string `json:"last_checked,omitempty"`
 }
 
 // Issue represents a beads issue.
