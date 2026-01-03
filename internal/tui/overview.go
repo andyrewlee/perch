@@ -350,6 +350,9 @@ var (
 	stoppedStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#555555")) // Dim grey - stopped
 
+	completedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00BFFF")) // Cyan - completed
+
 	legendStyle = lipgloss.NewStyle().
 			Foreground(muted).
 			MarginTop(1)

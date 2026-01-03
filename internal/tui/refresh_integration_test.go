@@ -23,7 +23,13 @@ func TestRefreshIntegration_NormalCycle(t *testing.T) {
 	// Set up mock responses for all data sources
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -97,7 +103,7 @@ func TestRefreshIntegration_ErrorPropagation(t *testing.T) {
 	mock.On([]string{"gt", "status"}, nil, []byte("connection refused"), errors.New("exit status 1"))
 	// Other commands succeed (partial data scenario)
 	mock.On([]string{"gt", "polecat"}, []byte("[]"), nil, nil)
-	mock.On([]string{"gt", "convoy"}, []byte("[]"), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, []byte("[]"), nil, nil)
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, []byte("[]"), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -137,7 +143,13 @@ func TestRefreshIntegration_PartialDataWithErrors(t *testing.T) {
 
 	// Town and convoys succeed
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	// Others fail
 	mock.On([]string{"gt", "polecat"}, nil, []byte("error"), errors.New("failed"))
 	mock.On([]string{"gt", "mail"}, nil, []byte("error"), errors.New("failed"))
@@ -188,7 +200,14 @@ func TestRefreshIntegration_StatusIndicators(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	// Handle convoy status requests
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -247,7 +266,13 @@ func TestRefreshIntegration_ConcurrentTick(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -288,7 +313,13 @@ func TestRefreshIntegration_SidebarSync(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -333,7 +364,13 @@ func TestRefreshIntegration_QueueHealthUpdate(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	// Return merge queue data for perch
@@ -380,7 +417,13 @@ func TestRefreshIntegration_SelectedRigValidation(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
@@ -460,7 +503,13 @@ func TestRefreshIntegration_ManualRefresh(t *testing.T) {
 
 	mock.On([]string{"gt", "status"}, fixtures.TownStatusJSON(), nil, nil)
 	mock.On([]string{"gt", "polecat"}, fixtures.PolecatsJSON(), nil, nil)
-	mock.On([]string{"gt", "convoy"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.On([]string{"gt", "convoy", "list"}, fixtures.ConvoysJSON(), nil, nil)
+	mock.OnFunc([]string{"gt", "convoy", "status"}, func(args []string) ([]byte, []byte, error) {
+		if len(args) >= 4 {
+			return fixtures.ConvoyStatusJSON(args[3]), nil, nil
+		}
+		return fixtures.ConvoyStatusJSON(""), nil, nil
+	})
 	mock.On([]string{"gt", "mail"}, []byte("[]"), nil, nil)
 	mock.On([]string{"bd", "list"}, fixtures.IssuesJSON(), nil, nil)
 	mock.On([]string{"gt", "mq"}, []byte("[]"), nil, nil)
