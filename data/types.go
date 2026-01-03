@@ -241,3 +241,61 @@ type AuditEntry struct {
 	Actor     string    `json:"actor"`
 	Summary   string    `json:"summary"`
 }
+
+// RigSettings represents the configuration for a rig.
+// Combines data from rigs.json and <rig>/settings/config.json
+type RigSettings struct {
+	// Rig identity
+	Name string `json:"name"`
+
+	// From rigs.json
+	GitURL string `json:"git_url"`
+	Prefix string `json:"prefix"` // Beads issue prefix (e.g., "gt")
+
+	// From settings/config.json
+	Theme      string           `json:"theme,omitempty"`       // UI theme for dashboard
+	MaxWorkers int              `json:"max_workers,omitempty"` // Maximum concurrent polecats (0 = unlimited)
+	MergeQueue MergeQueueConfig `json:"merge_queue"`
+}
+
+// MergeQueueConfig contains merge queue settings.
+type MergeQueueConfig struct {
+	Enabled     bool   `json:"enabled"`
+	RunTests    bool   `json:"run_tests"`
+	TestCommand string `json:"test_command"`
+}
+
+// Validate checks that the rig settings are valid.
+func (s *RigSettings) Validate() error {
+	if s.Name == "" {
+		return ErrEmptyRigName
+	}
+	if s.Prefix == "" {
+		return ErrEmptyPrefix
+	}
+	if s.MaxWorkers < 0 {
+		return ErrInvalidMaxWorkers
+	}
+	if s.MergeQueue.RunTests && s.MergeQueue.TestCommand == "" {
+		return ErrEmptyTestCommand
+	}
+	return nil
+}
+
+// RigSettings validation errors
+var (
+	ErrEmptyRigName      = &ValidationError{Field: "name", Message: "rig name cannot be empty"}
+	ErrEmptyPrefix       = &ValidationError{Field: "prefix", Message: "beads prefix cannot be empty"}
+	ErrInvalidMaxWorkers = &ValidationError{Field: "max_workers", Message: "max workers cannot be negative"}
+	ErrEmptyTestCommand  = &ValidationError{Field: "test_command", Message: "test command required when run_tests is enabled"}
+)
+
+// ValidationError represents a validation error for a specific field.
+type ValidationError struct {
+	Field   string
+	Message string
+}
+
+func (e *ValidationError) Error() string {
+	return e.Field + ": " + e.Message
+}

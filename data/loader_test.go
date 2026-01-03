@@ -226,6 +226,121 @@ func TestEnrichWithHookedBeads_NilTown(t *testing.T) {
 	snap.EnrichWithHookedBeads()
 }
 
+func TestRigSettingsValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		settings    RigSettings
+		expectError bool
+		errorField  string
+	}{
+		{
+			name: "valid settings",
+			settings: RigSettings{
+				Name:       "test-rig",
+				Prefix:     "tr",
+				MaxWorkers: 5,
+				MergeQueue: MergeQueueConfig{
+					Enabled:     true,
+					RunTests:    true,
+					TestCommand: "go test ./...",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "empty name",
+			settings: RigSettings{
+				Name:   "",
+				Prefix: "tr",
+			},
+			expectError: true,
+			errorField:  "name",
+		},
+		{
+			name: "empty prefix",
+			settings: RigSettings{
+				Name:   "test-rig",
+				Prefix: "",
+			},
+			expectError: true,
+			errorField:  "prefix",
+		},
+		{
+			name: "negative max workers",
+			settings: RigSettings{
+				Name:       "test-rig",
+				Prefix:     "tr",
+				MaxWorkers: -1,
+			},
+			expectError: true,
+			errorField:  "max_workers",
+		},
+		{
+			name: "run tests enabled but no command",
+			settings: RigSettings{
+				Name:   "test-rig",
+				Prefix: "tr",
+				MergeQueue: MergeQueueConfig{
+					Enabled:     true,
+					RunTests:    true,
+					TestCommand: "",
+				},
+			},
+			expectError: true,
+			errorField:  "test_command",
+		},
+		{
+			name: "run tests disabled - no command needed",
+			settings: RigSettings{
+				Name:   "test-rig",
+				Prefix: "tr",
+				MergeQueue: MergeQueueConfig{
+					Enabled:     true,
+					RunTests:    false,
+					TestCommand: "",
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "zero max workers is valid (unlimited)",
+			settings: RigSettings{
+				Name:       "test-rig",
+				Prefix:     "tr",
+				MaxWorkers: 0,
+			},
+			expectError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.settings.Validate()
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("expected validation error for %s", tc.errorField)
+				} else if verr, ok := err.(*ValidationError); ok {
+					if verr.Field != tc.errorField {
+						t.Errorf("expected error field %q, got %q", tc.errorField, verr.Field)
+					}
+				} else {
+					t.Errorf("expected ValidationError, got %T: %v", err, err)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidationErrorString(t *testing.T) {
+	err := &ValidationError{Field: "test_field", Message: "test message"}
+	expected := "test_field: test message"
+	if err.Error() != expected {
+		t.Errorf("expected %q, got %q", expected, err.Error())
+	}
+}
+
 func TestSplitAgentAddress(t *testing.T) {
 	tests := []struct {
 		input    string

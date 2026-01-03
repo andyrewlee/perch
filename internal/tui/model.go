@@ -58,6 +58,9 @@ type Model struct {
 	// Attach town dialog
 	attachDialog *AttachDialog
 
+	// Rig settings form
+	rigSettingsForm *RigSettingsForm
+
 	// Selected items for actions
 	selectedRig   string
 	selectedAgent string
@@ -167,6 +170,17 @@ type statusExpiredMsg struct{}
 type auditTimelineMsg struct {
 	actor   string
 	entries []data.AuditEntry
+	err     error
+}
+
+type rigSettingsLoadedMsg struct {
+	rigName  string
+	settings *data.RigSettings
+	err      error
+}
+
+type rigSettingsSavedMsg struct {
+	rigName string
 	err     error
 }
 
@@ -334,6 +348,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.auditTimeline = msg.entries
 		}
 		return m, nil
+
+	case rigSettingsLoadedMsg:
+		if msg.err != nil {
+			m.setStatus("Failed to load settings: "+msg.err.Error(), true)
+			return m, statusExpireCmd(5 * time.Second)
+		}
+		m.rigSettingsForm = NewRigSettingsForm(msg.rigName, msg.settings)
+		return m, nil
+
+	case rigSettingsSavedMsg:
+		if msg.err != nil {
+			m.setStatus("Failed to save settings: "+msg.err.Error(), true)
+			return m, statusExpireCmd(5 * time.Second)
+		}
+		m.setStatus("Settings saved for "+msg.rigName, false)
+		return m, tea.Batch(statusExpireCmd(3*time.Second), m.loadData)
 	}
 
 	return m, nil
@@ -401,6 +431,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle create work form
 	if m.createWorkForm != nil {
 		return m.handleCreateWorkFormKey(msg)
+	}
+
+	// Handle rig settings form
+	if m.rigSettingsForm != nil {
+		return m.handleRigSettingsFormKey(msg)
 	}
 
 	switch msg.String() {
@@ -697,6 +732,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "e":
+		// Edit rig settings (only when in Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionRigs {
+			if m.selectedRig == "" {
+				m.setStatus("No rig selected. Use j/k to select a rig.", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			return m, m.openRigSettingsCmd(m.selectedRig)
+		}
 		// Cycle lifecycle type filter (only in Lifecycle section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
 			m.cycleLifecycleTypeFilter()
@@ -834,6 +877,50 @@ func (m Model) handleCreateWorkFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.createWorkForm = nil
 		m.setStatus("Creating issue '"+title+"'...", false)
 		return m, m.createWorkCmd(title, string(issueType), priority, rig, target, skipSling)
+	}
+
+	return m, cmd
+}
+
+// openRigSettingsCmd loads settings and opens the settings form.
+func (m Model) openRigSettingsCmd(rigName string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		loader := data.NewLoader(m.townRoot)
+		settings, err := loader.LoadRigSettings(ctx, rigName)
+		return rigSettingsLoadedMsg{rigName: rigName, settings: settings, err: err}
+	}
+}
+
+// saveRigSettingsCmd saves rig settings.
+func (m Model) saveRigSettingsCmd(settings *data.RigSettings) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		loader := data.NewLoader(m.townRoot)
+		err := loader.SaveRigSettings(ctx, settings)
+		return rigSettingsSavedMsg{rigName: settings.Name, err: err}
+	}
+}
+
+// handleRigSettingsFormKey handles key presses when the rig settings form is shown.
+func (m Model) handleRigSettingsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd := m.rigSettingsForm.Update(msg)
+
+	if m.rigSettingsForm.IsCancelled() {
+		m.rigSettingsForm = nil
+		m.setStatus("Edit cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.rigSettingsForm.IsSubmitted() {
+		settings := m.rigSettingsForm.ToSettings()
+		m.rigSettingsForm = nil
+		m.setStatus("Saving settings for '"+settings.Name+"'...", false)
+		return m, m.saveRigSettingsCmd(settings)
 	}
 
 	return m, cmd
@@ -1174,6 +1261,10 @@ func (m Model) View() string {
 
 	if m.createWorkForm != nil {
 		return m.createWorkForm.View(m.width, m.height)
+	}
+
+	if m.rigSettingsForm != nil {
+		return m.rigSettingsForm.View(m.width, m.height)
 	}
 
 	if m.attachDialog != nil {
@@ -1524,6 +1615,9 @@ func (m Model) renderFooter() string {
 		switch m.focus {
 		case PanelSidebar:
 			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-7: jump")
+			if m.sidebar.Section == SectionRigs {
+				helpItems = append(helpItems, "e: edit settings")
+			}
 			if m.sidebar.Section == SectionMergeQueue {
 				helpItems = append(helpItems, "n: nudge")
 			}
@@ -1689,6 +1783,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("1-7") + "        Jump to section (1=Rigs...7=Worktrees)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
+		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("A") + "          Attach to a different town",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
