@@ -783,28 +783,35 @@ func (m Model) renderHelpOverlay() string {
 	}
 
 	concepts := []string{
-		helpHeaderStyle.Render("Core Concepts"),
+		helpHeaderStyle.Render("Rigs & Agents"),
 		"",
-		helpKeyStyle.Render("Rigs") + "       Project containers with their own workers",
-		"            Each rig has polecats, a witness, and a refinery",
+		helpKeyStyle.Render("Rigs") + "       Project containers (own workers, MQ)",
+		"            Each rig has polecats, a witness, and refinery",
 		"",
-		helpKeyStyle.Render("Polecats") + "   Worker agents that execute tasks",
-		"            Each has its own git worktree for isolation",
+		helpKeyStyle.Render("Polecats") + "   Witness-managed workers (auto-spawned)",
+		"            Autonomous agents, auto-cleanup when idle",
 		"",
-		helpKeyStyle.Render("Witness") + "    Per-rig manager that monitors polecat health",
-		"            Nudges stuck workers, handles cleanup",
+		helpKeyStyle.Render("Crew") + "       Human-managed workers (you run sessions)",
+		"            Same isolation, but you control lifecycle",
 		"",
-		helpKeyStyle.Render("Refinery") + "   Merge queue processor for the rig",
-		"            Processes completed work from polecats",
+		helpKeyStyle.Render("Witness") + "    Polecat lifecycle manager",
+		"            Spawns/nudges/cleans up polecats",
 		"",
-		helpKeyStyle.Render("Convoys") + "    Groups of related work items",
-		"            Track progress across multiple beads",
+		helpKeyStyle.Render("Refinery") + "   Merge queue processor",
+		"            Rebases and merges completed work",
+		"",
+		helpHeaderStyle.Render("Work & Status"),
 		"",
 		helpKeyStyle.Render("Hooks") + "      Work assignment mechanism",
-		"            When work is hooked, the agent executes it",
+		"            Hooked work = agent executes immediately",
 		"",
-		helpKeyStyle.Render("Beads") + "      Issue tracking system (like tickets)",
-		"            Track tasks, bugs, and features",
+		helpKeyStyle.Render("●=working") + "  Agent running with hooked work",
+		helpKeyStyle.Render("○=idle") + "     Agent running, waiting for work",
+		helpKeyStyle.Render("!=attention") + " Has unread mail (may need help)",
+		helpKeyStyle.Render("◌=stopped") + "  Agent session not running",
+		"",
+		helpKeyStyle.Render("Convoys") + "    Groups of related work items",
+		helpKeyStyle.Render("Beads") + "      Issue tracking (tasks, bugs, features)",
 	}
 
 	keymap := []string{
@@ -881,13 +888,17 @@ func agentTypeFromRole(role string) AgentType {
 	}
 }
 
-// agentStatusFromRunning determines agent status from running state.
-func agentStatusFromRunning(running, hasWork bool) AgentStatus {
+// agentStatusFromState determines agent status from running state and work.
+func agentStatusFromState(running, hasWork bool, unreadMail int) AgentStatus {
 	if !running {
-		return StatusIdle
+		return StatusStopped
+	}
+	// Running: check for attention-needed conditions
+	if unreadMail > 0 {
+		return StatusAttention
 	}
 	if hasWork {
-		return StatusActive
+		return StatusWorking
 	}
 	return StatusIdle
 }

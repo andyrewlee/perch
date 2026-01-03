@@ -80,17 +80,39 @@ type agentItem struct {
 
 func (a agentItem) ID() string { return a.a.Address }
 func (a agentItem) Label() string {
-	status := "stopped"
-	if a.a.Running {
-		status = "running"
-	}
-	return fmt.Sprintf("%s (%s)", a.a.Name, status)
+	badge := agentStatusBadge(a.a.Running, a.a.HasWork, a.a.UnreadMail)
+	return fmt.Sprintf("%s %s", badge, a.a.Name)
 }
 func (a agentItem) Status() string {
-	if a.a.Running {
-		return "running"
+	return agentStatusText(a.a.Running, a.a.HasWork, a.a.UnreadMail)
+}
+
+// agentStatusBadge returns a colored badge for agent status
+func agentStatusBadge(running, hasWork bool, unreadMail int) string {
+	if !running {
+		return stoppedStyle.Render("◌")
 	}
-	return "stopped"
+	if unreadMail > 0 {
+		return attentionStyle.Render("!")
+	}
+	if hasWork {
+		return workingStyle.Render("●")
+	}
+	return idleStyle.Render("○")
+}
+
+// agentStatusText returns status text for agent
+func agentStatusText(running, hasWork bool, unreadMail int) string {
+	if !running {
+		return "stopped"
+	}
+	if unreadMail > 0 {
+		return "attention"
+	}
+	if hasWork {
+		return "working"
+	}
+	return "idle"
 }
 
 // rigItem wraps data.Rig for selection with aggregated counts
@@ -531,11 +553,10 @@ func renderAgentDetails(a data.Agent, width int) string {
 	lines = append(lines, fmt.Sprintf("Role:    %s", a.Role))
 	lines = append(lines, fmt.Sprintf("Session: %s", a.Session))
 
-	status := "Stopped"
-	if a.Running {
-		status = "Running"
-	}
-	lines = append(lines, fmt.Sprintf("Status:  %s", status))
+	// Status with badge
+	badge := agentStatusBadge(a.Running, a.HasWork, a.UnreadMail)
+	statusText := agentStatusText(a.Running, a.HasWork, a.UnreadMail)
+	lines = append(lines, fmt.Sprintf("Status:  %s %s", badge, statusText))
 
 	if a.HasWork {
 		lines = append(lines, fmt.Sprintf("Work:    %s", a.FirstSubject))

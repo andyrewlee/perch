@@ -20,9 +20,10 @@ const (
 type AgentStatus int
 
 const (
-	StatusIdle AgentStatus = iota
-	StatusActive
-	StatusError
+	StatusStopped   AgentStatus = iota // Not running
+	StatusIdle                         // Running, no work hooked
+	StatusWorking                      // Running, actively working
+	StatusAttention                    // Has unread mail, may need attention
 )
 
 // Agent represents a worker in a rig
@@ -172,7 +173,7 @@ func (r *OverviewRenderer) renderAgents(agents []Agent, maxWidth int) string {
 	return line
 }
 
-// agentSymbol returns the colored symbol for an agent
+// agentSymbol returns the colored symbol for an agent with status badge
 func (r *OverviewRenderer) agentSymbol(agent Agent) string {
 	// Type symbol
 	var typeChar string
@@ -185,31 +186,49 @@ func (r *OverviewRenderer) agentSymbol(agent Agent) string {
 		typeChar = "P"
 	}
 
-	// Status color
+	// Status badge and color
 	var style lipgloss.Style
+	var badge string
 	switch agent.Status {
-	case StatusActive:
-		style = activeStyle
-	case StatusError:
-		style = errorStyle
-	default:
+	case StatusWorking:
+		style = workingStyle
+		badge = "●" // Working indicator
+	case StatusAttention:
+		style = attentionStyle
+		badge = "!" // Needs attention
+	case StatusIdle:
 		style = idleStyle
+		badge = "○" // Idle/ready
+	case StatusStopped:
+		style = stoppedStyle
+		badge = "◌" // Stopped
+	default:
+		style = stoppedStyle
+		badge = "◌"
 	}
 
-	return style.Render(typeChar)
+	return style.Render(typeChar + badge)
 }
 
-// renderLegend shows the symbol meanings
+// renderLegend shows the symbol meanings with clear status badges
 func (r *OverviewRenderer) renderLegend() string {
-	legend := []string{
-		activeStyle.Render("P") + "=polecat",
-		activeStyle.Render("W") + "=witness",
-		activeStyle.Render("R") + "=refinery",
-		"|",
-		activeStyle.Render("*") + "=active",
-		idleStyle.Render("*") + "=idle",
-		errorStyle.Render("*") + "=error",
+	// Agent types
+	types := []string{
+		idleStyle.Render("P") + "=polecat",
+		idleStyle.Render("W") + "=witness",
+		idleStyle.Render("R") + "=refinery",
 	}
+
+	// Status badges
+	statuses := []string{
+		workingStyle.Render("●") + "=working",
+		idleStyle.Render("○") + "=idle",
+		attentionStyle.Render("!") + "=attention",
+		stoppedStyle.Render("◌") + "=stopped",
+	}
+
+	legend := append(types, "|")
+	legend = append(legend, statuses...)
 
 	return legendStyle.Render(strings.Join(legend, "  "))
 }
@@ -237,14 +256,18 @@ var (
 			Bold(true).
 			Foreground(text)
 
-	activeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00"))
+	// Status styles for agents
+	workingStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00")) // Green - actively working
 
 	idleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#888888"))
+			Foreground(lipgloss.Color("#888888")) // Grey - idle but running
 
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000"))
+	attentionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00")) // Yellow - needs attention
+
+	stoppedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#555555")) // Dim grey - stopped
 
 	legendStyle = lipgloss.NewStyle().
 			Foreground(muted).
@@ -258,27 +281,27 @@ func MockTown() Town {
 			{
 				Name: "perch",
 				Agents: []Agent{
-					{Name: "furiosa", Type: AgentPolecat, Status: StatusActive},
-					{Name: "nux", Type: AgentPolecat, Status: StatusActive},
+					{Name: "furiosa", Type: AgentPolecat, Status: StatusWorking},
+					{Name: "nux", Type: AgentPolecat, Status: StatusWorking},
 					{Name: "slit", Type: AgentPolecat, Status: StatusIdle},
-					{Name: "witness", Type: AgentWitness, Status: StatusActive},
+					{Name: "witness", Type: AgentWitness, Status: StatusWorking},
 					{Name: "refinery", Type: AgentRefinery, Status: StatusIdle},
 				},
 			},
 			{
 				Name: "gastown",
 				Agents: []Agent{
-					{Name: "immortan", Type: AgentPolecat, Status: StatusActive},
-					{Name: "witness", Type: AgentWitness, Status: StatusActive},
-					{Name: "refinery", Type: AgentRefinery, Status: StatusActive},
+					{Name: "immortan", Type: AgentPolecat, Status: StatusWorking},
+					{Name: "witness", Type: AgentWitness, Status: StatusWorking},
+					{Name: "refinery", Type: AgentRefinery, Status: StatusWorking},
 				},
 			},
 			{
 				Name: "citadel",
 				Agents: []Agent{
-					{Name: "warboy", Type: AgentPolecat, Status: StatusError},
-					{Name: "witness", Type: AgentWitness, Status: StatusIdle},
-					{Name: "refinery", Type: AgentRefinery, Status: StatusIdle},
+					{Name: "warboy", Type: AgentPolecat, Status: StatusAttention},
+					{Name: "witness", Type: AgentWitness, Status: StatusStopped},
+					{Name: "refinery", Type: AgentRefinery, Status: StatusStopped},
 				},
 			},
 		},
