@@ -10,32 +10,61 @@ import (
 	"time"
 )
 
-// Loader executes CLI commands and parses their JSON output.
-type Loader struct {
-	// TownRoot is the Gas Town root directory (where gt commands run).
-	TownRoot string
+// CommandRunner abstracts shell command execution.
+// Implementations can be real (exec) or mock (for testing).
+type CommandRunner interface {
+	// Exec runs a command and returns stdout, stderr, and error.
+	Exec(ctx context.Context, workDir string, args ...string) (stdout, stderr []byte, err error)
 }
 
-// NewLoader creates a loader for the given town root.
-func NewLoader(townRoot string) *Loader {
-	return &Loader{TownRoot: townRoot}
-}
+// realRunner executes commands using os/exec.
+type realRunner struct{}
 
-// execJSON runs a command and unmarshals its JSON output into dst.
-func (l *Loader) execJSON(ctx context.Context, dst any, args ...string) error {
+func (r *realRunner) Exec(ctx context.Context, workDir string, args ...string) ([]byte, []byte, error) {
+	if len(args) == 0 {
+		return nil, nil, fmt.Errorf("no command specified")
+	}
+
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = l.TownRoot
+	cmd.Dir = workDir
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w: %s", args[0], err, stderr.String())
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+// Loader executes CLI commands and parses their JSON output.
+type Loader struct {
+	// TownRoot is the Gas Town root directory (where gt commands run).
+	TownRoot string
+
+	// Runner executes commands. If nil, uses real exec.
+	Runner CommandRunner
+}
+
+// NewLoader creates a loader for the given town root.
+func NewLoader(townRoot string) *Loader {
+	return &Loader{TownRoot: townRoot, Runner: &realRunner{}}
+}
+
+// NewLoaderWithRunner creates a loader with a custom command runner.
+// Useful for testing with mock responses.
+func NewLoaderWithRunner(townRoot string, runner CommandRunner) *Loader {
+	return &Loader{TownRoot: townRoot, Runner: runner}
+}
+
+// execJSON runs a command and unmarshals its JSON output into dst.
+func (l *Loader) execJSON(ctx context.Context, dst any, args ...string) error {
+	stdout, stderr, err := l.Runner.Exec(ctx, l.TownRoot, args...)
+	if err != nil {
+		return fmt.Errorf("%s: %w: %s", args[0], err, string(stderr))
 	}
 
 	// Handle null/empty output
-	out := bytes.TrimSpace(stdout.Bytes())
+	out := bytes.TrimSpace(stdout)
 	if len(out) == 0 || string(out) == "null" {
 		return nil
 	}
