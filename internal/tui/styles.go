@@ -241,3 +241,35 @@ var (
 				Foreground(lipgloss.Color("#FF6666")).
 				Bold(true)
 )
+
+// Convoy styles
+var (
+	convoyActiveStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00")).
+				Bold(true)
+
+	convoyOpenStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00"))
+
+	convoyClosedStyle = lipgloss.NewStyle().
+				Foreground(muted)
+
+	progressBarStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00"))
+
+	progressBarEmptyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#444444"))
+)
+
+// Health check styles
+var (
+	healthOkStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00"))
+
+	healthWarningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFCC00"))
+
+	healthErrorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF6666")).
+				Bold(true)
+)
