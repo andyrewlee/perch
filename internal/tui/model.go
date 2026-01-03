@@ -1350,6 +1350,11 @@ func (m Model) renderHelpOverlay() string {
 		"",
 		helpKeyStyle.Render("Convoys") + "    Groups of related work items",
 		helpKeyStyle.Render("Beads") + "      Issue tracking (tasks, bugs, features)",
+		"",
+		helpHeaderStyle.Render("Behind the Scenes"),
+		"",
+		helpKeyStyle.Render("Sessions") + "   Powered by tmux (internal, no setup needed)",
+		"            Sessions persist even if Perch closes",
 	}
 
 	keymap := []string{
