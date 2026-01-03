@@ -429,7 +429,7 @@ func (s *Snapshot) UnreadMail() []MailMessage {
 // EnrichWithHookedBeads reconciles bead-based hook state with town status.
 // This updates:
 // - Summary.ActiveHooks to reflect actual hooked beads
-// - Agent.HasWork and Agent.FirstSubject based on bead assignees
+// - Agent.HasWork, Agent.FirstSubject, and hook details based on bead assignees
 // - Rig.Hooks to reflect which agents have hooked work
 func (s *Snapshot) EnrichWithHookedBeads() {
 	if s.Town == nil || len(s.HookedIssues) == 0 {
@@ -453,8 +453,7 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 	for i := range s.Town.Agents {
 		agent := &s.Town.Agents[i]
 		if issue, ok := hookedByAssignee[agent.Address]; ok {
-			agent.HasWork = true
-			agent.FirstSubject = issue.Title
+			enrichAgentWithHook(agent, issue)
 		}
 	}
 
@@ -466,8 +465,7 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 		for j := range rig.Agents {
 			agent := &rig.Agents[j]
 			if issue, ok := hookedByAssignee[agent.Address]; ok {
-				agent.HasWork = true
-				agent.FirstSubject = issue.Title
+				enrichAgentWithHook(agent, issue)
 			}
 		}
 
@@ -489,6 +487,15 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 			}
 		}
 	}
+}
+
+// enrichAgentWithHook populates agent hook fields from a hooked issue.
+func enrichAgentWithHook(agent *Agent, issue *Issue) {
+	agent.HasWork = true
+	agent.FirstSubject = issue.Title
+	agent.HookedBeadID = issue.ID
+	agent.HookedStatus = issue.Status
+	agent.HookedAt = issue.UpdatedAt
 }
 
 // splitAgentAddress splits "rig/name" into ["rig", "name"]

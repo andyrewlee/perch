@@ -88,7 +88,12 @@ type agentItem struct {
 func (a agentItem) ID() string { return a.a.Address }
 func (a agentItem) Label() string {
 	badge := agentStatusBadge(a.a.Running, a.a.HasWork, a.a.UnreadMail)
-	return fmt.Sprintf("%s %s", badge, a.a.Name)
+	label := fmt.Sprintf("%s %s", badge, a.a.Name)
+	// Append hooked bead ID if present
+	if a.a.HookedBeadID != "" {
+		label += " " + mutedStyle.Render("["+a.a.HookedBeadID+"]")
+	}
+	return label
 }
 func (a agentItem) Status() string {
 	return agentStatusText(a.a.Running, a.a.HasWork, a.a.UnreadMail)
@@ -845,11 +850,20 @@ func renderAgentDetails(a data.Agent, width int) string {
 	statusHelp := StatusHelp(a.Running, a.HasWork, a.UnreadMail)
 	lines = append(lines, mutedStyle.Render("         "+statusHelp))
 
-	if a.HasWork {
-		lines = append(lines, "")
-		lines = append(lines, fmt.Sprintf("Work:    %s", a.FirstSubject))
+	// Hook section - show hooked issue details
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Hook"))
+	if a.HookedBeadID != "" {
+		lines = append(lines, fmt.Sprintf("Bead:    %s", a.HookedBeadID))
+		lines = append(lines, fmt.Sprintf("Title:   %s", a.FirstSubject))
+		lines = append(lines, fmt.Sprintf("Status:  %s", a.HookedStatus))
+		lines = append(lines, fmt.Sprintf("Age:     %s", formatAge(a.HookedAt)))
+	} else {
+		lines = append(lines, mutedStyle.Render("(empty)"))
 	}
+
 	if a.UnreadMail > 0 {
+		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("Mail:    %d unread", a.UnreadMail))
 	}
 
@@ -858,6 +872,24 @@ func renderAgentDetails(a data.Agent, width int) string {
 	lines = append(lines, mutedStyle.Render("Press 'o' to open logs"))
 
 	return strings.Join(lines, "\n")
+}
+
+// formatAge returns a human-readable age string (e.g., "5m", "2h", "3d")
+func formatAge(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	d := time.Since(t)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
 
 func renderRigDetails(r rigItem, width int) string {
