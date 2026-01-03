@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os/exec"
 	"time"
+
+	"github.com/andyrewlee/perch/data"
 )
 
 // ActionType identifies the type of action being performed.
@@ -30,15 +32,43 @@ type Action struct {
 	Output    string
 }
 
+// actionRunner implements command execution for actions.
+type actionRunner struct{}
+
+func (r *actionRunner) Exec(ctx context.Context, workDir string, args ...string) ([]byte, []byte, error) {
+	if len(args) == 0 {
+		return nil, nil, fmt.Errorf("no command specified")
+	}
+
+	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+	cmd.Dir = workDir
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
+
 // ActionRunner executes Gas Town commands.
 type ActionRunner struct {
 	// TownRoot is the directory where gt commands are executed.
 	TownRoot string
+
+	// Runner executes commands. If nil, uses real exec.
+	Runner data.CommandRunner
 }
 
 // NewActionRunner creates a new runner for the given town root.
 func NewActionRunner(townRoot string) *ActionRunner {
-	return &ActionRunner{TownRoot: townRoot}
+	return &ActionRunner{TownRoot: townRoot, Runner: &actionRunner{}}
+}
+
+// NewActionRunnerWithRunner creates a runner with a custom command runner.
+// Useful for testing with mock responses.
+func NewActionRunnerWithRunner(townRoot string, runner data.CommandRunner) *ActionRunner {
+	return &ActionRunner{TownRoot: townRoot, Runner: runner}
 }
 
 // BootRig starts a rig.
@@ -93,14 +123,9 @@ func (r *ActionRunner) NudgePolecat(ctx context.Context, rig, worker, branch str
 
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
-	cmd.Dir = r.TownRoot
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		errMsg := stderr.String()
+	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
+	if err != nil {
+		errMsg := string(stderr)
 		if errMsg != "" {
 			return fmt.Errorf("%s: %s", err, errMsg)
 		}
