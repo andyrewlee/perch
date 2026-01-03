@@ -121,23 +121,26 @@ func TestAgentTypeFromRole(t *testing.T) {
 	}
 }
 
-func TestAgentStatusFromRunning(t *testing.T) {
+func TestAgentStatusFromState(t *testing.T) {
 	tests := []struct {
-		running bool
-		hasWork bool
-		want    AgentStatus
+		running    bool
+		hasWork    bool
+		unreadMail int
+		want       AgentStatus
 	}{
-		{false, false, StatusIdle},
-		{false, true, StatusIdle},
-		{true, false, StatusIdle},
-		{true, true, StatusActive},
+		{false, false, 0, StatusStopped},
+		{false, true, 0, StatusStopped},
+		{true, false, 0, StatusIdle},
+		{true, true, 0, StatusWorking},
+		{true, true, 1, StatusAttention}, // Mail takes precedence
+		{true, false, 2, StatusAttention},
 	}
 
 	for _, tt := range tests {
-		got := agentStatusFromRunning(tt.running, tt.hasWork)
+		got := agentStatusFromState(tt.running, tt.hasWork, tt.unreadMail)
 		if got != tt.want {
-			t.Errorf("agentStatusFromRunning(%v, %v) = %v, want %v",
-				tt.running, tt.hasWork, got, tt.want)
+			t.Errorf("agentStatusFromState(%v, %v, %d) = %v, want %v",
+				tt.running, tt.hasWork, tt.unreadMail, got, tt.want)
 		}
 	}
 }
