@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/andyrewlee/perch/data"
 	"github.com/charmbracelet/lipgloss"
@@ -233,13 +234,19 @@ type SidebarState struct {
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
 	LifecycleAgentFilter string                  // Empty = show all
+
+	// Loading/error state for agents panel
+	AgentsLastRefresh time.Time // Last successful agent data refresh
+	AgentsLoadError   error     // Error from last agent load attempt (nil if successful)
+	AgentsLoading     bool      // True during initial load
 }
 
 // NewSidebarState creates a new sidebar state
 func NewSidebarState() *SidebarState {
 	return &SidebarState{
-		Section:   SectionRigs,
-		Selection: 0,
+		Section:       SectionRigs,
+		Selection:     0,
+		AgentsLoading: true, // Start in loading state until first successful refresh
 	}
 }
 
@@ -277,12 +284,26 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 	}
 
-	// Update agents
+	// Update agents with loading/error tracking
+	// Preserve last-known agents when Town fails to load
 	if snap.Town != nil {
 		s.Agents = make([]agentItem, len(snap.Town.Agents))
 		for i, a := range snap.Town.Agents {
 			s.Agents[i] = agentItem{a}
 		}
+		s.AgentsLastRefresh = snap.LoadedAt
+		s.AgentsLoadError = nil
+		s.AgentsLoading = false
+	} else {
+		// Town failed to load - find the error if any
+		s.AgentsLoading = false
+		for _, err := range snap.Errors {
+			if err != nil {
+				s.AgentsLoadError = err
+				break
+			}
+		}
+		// Preserve s.Agents (last-known value) - don't clear it
 	}
 
 	// Update mail
@@ -433,6 +454,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		if sec == SectionMergeQueue && len(items) == 0 {
 			// Special empty state for merge queue with context
 			list = renderMQEmptyState(snap, innerWidth)
+		} else if sec == SectionAgents {
+			// Special handling for agents section with loading/error states
+			list = renderAgentsList(state, items, isActive, innerWidth, sectionHeight)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -572,6 +596,64 @@ func renderItemList(items []SelectableItem, selection int, isActiveSection bool,
 		}
 
 		if isActiveSection && i == selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderAgentsList renders the agents list with loading/error state indicators.
+// Per acceptance criteria: always show last-known agents; if loading, show explicit
+// loading state; if error, show error + last refresh time.
+func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	var lines []string
+
+	// Show loading indicator during initial load
+	if state.AgentsLoading {
+		lines = append(lines, mutedStyle.Render("  Loading agents..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if agents failed to load (but still show last-known)
+	if state.AgentsLoadError != nil {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.AgentsLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (last: " + state.AgentsLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+	}
+
+	// Show last-known agents (or empty state if none)
+	if len(items) == 0 {
+		if state.AgentsLoadError != nil {
+			lines = append(lines, mutedStyle.Render("  (no cached agents)"))
+		} else {
+			lines = append(lines, mutedStyle.Render("  (empty)"))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Calculate remaining lines for agent list
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render agent items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
 			lines = append(lines, selectedItemStyle.Render("> "+label))
 		} else {
 			lines = append(lines, itemStyle.Render("  "+label))
