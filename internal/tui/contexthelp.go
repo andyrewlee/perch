@@ -21,7 +21,11 @@ func SectionHelp(section SidebarSection) string {
 	case SectionLifecycle:
 		return "Agent events"
 	case SectionWorktrees:
-		return "Cross-rig clones"
+		return "Cross-rig worktrees"
+	case SectionPlugins:
+		return "Town extensions"
+	case SectionErrors:
+		return "Load errors"
 	default:
 		return ""
 	}
