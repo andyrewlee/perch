@@ -164,6 +164,15 @@ func (l *Loader) LoadOpenIssues(ctx context.Context) ([]Issue, error) {
 	return issues, nil
 }
 
+// LoadMail loads mail messages from the inbox.
+func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
+	var mail []MailMessage
+	if err := l.execJSON(ctx, &mail, "gt", "mail", "inbox", "--json"); err != nil {
+		return nil, fmt.Errorf("loading mail: %w", err)
+	}
+	return mail, nil
+}
+
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
 	Town        *TownStatus
@@ -171,6 +180,7 @@ type Snapshot struct {
 	Convoys     []Convoy
 	MergeQueues map[string][]MergeRequest
 	Issues      []Issue
+	Mail        []MailMessage
 	LoadedAt    time.Time
 	Errors      []error
 }
@@ -197,7 +207,7 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	}
 
 	// Parallel loads
-	wg.Add(3)
+	wg.Add(4)
 
 	go func() {
 		defer wg.Done()
@@ -235,6 +245,18 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+		mail, err := l.LoadMail(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.Mail = mail
+		}
+	}()
+
 	wg.Wait()
 
 	// Load MQ for each rig (requires town status)
@@ -267,4 +289,26 @@ func (s *Snapshot) RigNames() []string {
 		names[i] = r.Name
 	}
 	return names
+}
+
+// UnreadMailCount returns the number of unread mail messages.
+func (s *Snapshot) UnreadMailCount() int {
+	count := 0
+	for _, m := range s.Mail {
+		if !m.Read {
+			count++
+		}
+	}
+	return count
+}
+
+// UnreadMail returns only unread mail messages.
+func (s *Snapshot) UnreadMail() []MailMessage {
+	var unread []MailMessage
+	for _, m := range s.Mail {
+		if !m.Read {
+			unread = append(unread, m)
+		}
+	}
+	return unread
 }

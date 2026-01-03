@@ -535,6 +535,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.Selection = 0
 		}
 		return m, nil
+
+	case "5":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionMail
+			m.sidebar.Selection = 0
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -872,7 +879,7 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-4: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-5: jump")
 			if m.sidebar.Section == SectionMergeQueue {
 				helpItems = append(helpItems, "n: nudge")
 			}
@@ -1015,7 +1022,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-4") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents)",
+		helpKeyStyle.Render("1-5") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents, 5=Mail)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
