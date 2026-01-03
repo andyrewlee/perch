@@ -530,6 +530,144 @@ func (l *Loader) LoadAuditTimeline(ctx context.Context, actor string, limit int)
 	return entries, nil
 }
 
+// LoadPlugins scans town and rig plugin directories and returns plugin info.
+func (l *Loader) LoadPlugins(ctx context.Context, rigNames []string) ([]Plugin, error) {
+	var plugins []Plugin
+
+	// Load town-level plugins
+	townPluginsDir := filepath.Join(l.TownRoot, "plugins")
+	townPlugins, err := l.scanPluginDir(townPluginsDir, "town")
+	if err == nil {
+		plugins = append(plugins, townPlugins...)
+	}
+
+	// Load rig-level plugins
+	for _, rigName := range rigNames {
+		rigPluginsDir := filepath.Join(l.TownRoot, rigName, "plugins")
+		rigPlugins, err := l.scanPluginDir(rigPluginsDir, rigName)
+		if err == nil {
+			plugins = append(plugins, rigPlugins...)
+		}
+	}
+
+	return plugins, nil
+}
+
+// scanPluginDir scans a plugins directory and returns plugin info.
+func (l *Loader) scanPluginDir(dir string, scope string) ([]Plugin, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	var plugins []Plugin
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		pluginPath := filepath.Join(dir, entry.Name())
+		plugin := l.loadPluginInfo(pluginPath, entry.Name(), scope)
+		plugins = append(plugins, plugin)
+	}
+
+	return plugins, nil
+}
+
+// loadPluginInfo reads plugin.md and extracts frontmatter info.
+func (l *Loader) loadPluginInfo(pluginPath, name, scope string) Plugin {
+	plugin := Plugin{
+		Name:    name,
+		Path:    pluginPath,
+		Scope:   scope,
+		Enabled: true, // Default to enabled
+	}
+
+	// Check for disabled marker file
+	disabledPath := filepath.Join(pluginPath, ".disabled")
+	if _, err := os.Stat(disabledPath); err == nil {
+		plugin.Enabled = false
+	}
+
+	// Check for error file
+	errorPath := filepath.Join(pluginPath, ".last_error")
+	if data, err := os.ReadFile(errorPath); err == nil {
+		plugin.LastError = strings.TrimSpace(string(data))
+		plugin.HasError = plugin.LastError != ""
+	}
+
+	// Check for last run file
+	lastRunPath := filepath.Join(pluginPath, ".last_run")
+	if data, err := os.ReadFile(lastRunPath); err == nil {
+		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data))); err == nil {
+			plugin.LastRun = t
+		}
+	}
+
+	// Parse plugin.md for metadata
+	pluginMdPath := filepath.Join(pluginPath, "plugin.md")
+	file, err := os.Open(pluginMdPath)
+	if err != nil {
+		plugin.Title = name // Use directory name as fallback title
+		return plugin
+	}
+	defer file.Close()
+
+	// Parse TOML frontmatter (between +++ markers)
+	scanner := bufio.NewScanner(file)
+	inFrontmatter := false
+	var frontmatterLines []string
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "+++" {
+			if inFrontmatter {
+				break // End of frontmatter
+			}
+			inFrontmatter = true
+			continue
+		}
+		if inFrontmatter {
+			frontmatterLines = append(frontmatterLines, line)
+		}
+	}
+
+	// Parse frontmatter lines (simple key = "value" parsing)
+	for _, line := range frontmatterLines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		// Remove quotes
+		value = strings.Trim(value, `"'`)
+
+		switch key {
+		case "title":
+			plugin.Title = value
+		case "description":
+			plugin.Description = value
+		case "gate":
+			plugin.GateType = value
+		case "schedule", "cooldown", "cron":
+			plugin.Schedule = value
+		}
+	}
+
+	if plugin.Title == "" {
+		plugin.Title = name
+	}
+
+	return plugin
+}
+
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
 	Town             *TownStatus
@@ -541,6 +679,7 @@ type Snapshot struct {
 	Issues           []Issue
 	HookedIssues     []Issue // Issues with hooked or in_progress status (active work)
 	Mail             []MailMessage
+	Plugins          []Plugin
 	Lifecycle        *LifecycleLog
 	OperationalState *OperationalState
 	DoctorReport     *DoctorReport
@@ -693,6 +832,14 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Errors = append(snap.Errors, err)
 		} else {
 			snap.Worktrees = worktrees
+		}
+
+		// Load plugins (requires rig names)
+		plugins, err := l.LoadPlugins(ctx, rigNames)
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.Plugins = plugins
 		}
 	}
 
