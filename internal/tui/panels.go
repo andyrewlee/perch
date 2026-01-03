@@ -126,14 +126,15 @@ type rigItem struct {
 
 func (r rigItem) ID() string { return r.r.Name }
 func (r rigItem) Label() string {
-	// Show rig name with summary counts: polecats, active hooks
+	// Show rig name with summary counts: polecats, active/total hooks
 	activeHooks := 0
 	for _, h := range r.r.Hooks {
 		if h.HasWork {
 			activeHooks++
 		}
 	}
-	return fmt.Sprintf("%s (%dP %dH)", r.r.Name, r.r.PolecatCount, activeHooks)
+	totalHooks := len(r.r.Hooks)
+	return fmt.Sprintf("%s (%dpol %d/%dhk)", r.r.Name, r.r.PolecatCount, activeHooks, totalHooks)
 }
 func (r rigItem) Status() string {
 	// Count running agents
