@@ -46,6 +46,7 @@ type Model struct {
 	actionRunner  *ActionRunner
 	statusMessage *StatusMessage
 	confirmDialog *ConfirmDialog
+	addRigForm    *AddRigForm
 
 	// Selected items for actions
 	selectedRig   string
@@ -242,6 +243,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleConfirmKey(msg)
 	}
 
+	// Handle add rig form
+	if m.addRigForm != nil {
+		return m.handleAddRigFormKey(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -295,6 +301,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
 		return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
+
+	case "a":
+		// Open add rig form
+		m.addRigForm = NewAddRigForm()
+		return m, nil
 
 	// Sidebar navigation (only when sidebar focused)
 	case "j", "down":
@@ -363,6 +374,39 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleAddRigFormKey handles key presses when the add rig form is shown.
+func (m Model) handleAddRigFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd := m.addRigForm.Update(msg)
+
+	if m.addRigForm.IsCancelled() {
+		m.addRigForm = nil
+		m.setStatus("Add rig cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.addRigForm.IsSubmitted() {
+		name := m.addRigForm.Name()
+		url := m.addRigForm.URL()
+		prefix := m.addRigForm.Prefix()
+		m.addRigForm = nil
+		m.setStatus("Adding rig '"+name+"'...", false)
+		return m, m.addRigCmd(name, url, prefix)
+	}
+
+	return m, cmd
+}
+
+// addRigCmd creates a command that executes the add rig action.
+func (m Model) addRigCmd(name, url, prefix string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.AddRig(ctx, name, url, prefix)
+		return actionCompleteMsg{action: ActionAddRig, target: name, err: err}
+	}
+}
+
 // handleActionComplete processes the result of an action.
 func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -397,6 +441,8 @@ func actionName(action ActionType) string {
 		return "Shutdown"
 	case ActionOpenLogs:
 		return "Open logs"
+	case ActionAddRig:
+		return "Add rig"
 	default:
 		return "Action"
 	}
@@ -410,6 +456,10 @@ func (m Model) View() string {
 
 	if m.showHelp {
 		return m.renderHelpOverlay()
+	}
+
+	if m.addRigForm != nil {
+		return m.addRigForm.View(m.width, m.height)
 	}
 
 	return m.renderLayout()
@@ -550,7 +600,7 @@ func (m Model) renderFooter() string {
 		case PanelSidebar:
 			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-3: jump")
 		}
-		helpItems = append(helpItems, "r: refresh", "b: boot", "s: stop", "o: logs", "?: help", "q: quit")
+		helpItems = append(helpItems, "a: add rig", "r: refresh", "b: boot", "s: stop", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
@@ -679,6 +729,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
 		helpKeyStyle.Render("1-3") + "        Jump to section",
+		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot selected rig",
 		helpKeyStyle.Render("s") + "          Shutdown selected rig",

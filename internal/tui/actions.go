@@ -16,6 +16,7 @@ const (
 	ActionBootRig
 	ActionShutdownRig
 	ActionOpenLogs
+	ActionAddRig
 )
 
 // Action represents a user-triggered action with its result.
@@ -54,6 +55,16 @@ func (r *ActionRunner) ShutdownRig(ctx context.Context, rig string) error {
 // Runs: gt logs <agent-address>
 func (r *ActionRunner) OpenLogs(ctx context.Context, agentAddress string) error {
 	return r.runCommand(ctx, "gt", "logs", agentAddress)
+}
+
+// AddRig adds a new rig by cloning a repository.
+// Runs: gt rig add <name> <git-url> [--prefix <prefix>]
+func (r *ActionRunner) AddRig(ctx context.Context, name, gitURL, prefix string) error {
+	args := []string{"gt", "rig", "add", name, gitURL}
+	if prefix != "" {
+		args = append(args, "--prefix", prefix)
+	}
+	return r.runCommand(ctx, args...)
 }
 
 // runCommand executes a shell command and returns any error.
