@@ -756,3 +756,124 @@ func extractAgentFromMessage(eventType LifecycleEventType, message string) strin
 	// Keep them as-is for now
 	return agent
 }
+
+// rigsRegistry represents the structure of rigs.json
+type rigsRegistry struct {
+	Version int                    `json:"version"`
+	Rigs    map[string]rigRegistry `json:"rigs"`
+}
+
+type rigRegistry struct {
+	GitURL  string    `json:"git_url"`
+	AddedAt time.Time `json:"added_at"`
+	Beads   struct {
+		Prefix string `json:"prefix"`
+	} `json:"beads"`
+}
+
+// rigConfig represents the structure of <rig>/settings/config.json
+type rigConfig struct {
+	Theme      string           `json:"theme,omitempty"`
+	MaxWorkers int              `json:"max_workers,omitempty"`
+	MergeQueue MergeQueueConfig `json:"merge_queue"`
+}
+
+// LoadRigSettings loads settings for a specific rig.
+// It combines data from rigs.json and <rig>/mayor/rig/settings/config.json
+func (l *Loader) LoadRigSettings(ctx context.Context, rigName string) (*RigSettings, error) {
+	settings := &RigSettings{
+		Name: rigName,
+		MergeQueue: MergeQueueConfig{
+			Enabled:     true,
+			RunTests:    true,
+			TestCommand: "go test ./...",
+		},
+	}
+
+	// Load from rigs.json
+	rigsPath := filepath.Join(l.TownRoot, "mayor", "rigs.json")
+	rigsData, err := os.ReadFile(rigsPath)
+	if err == nil {
+		var registry rigsRegistry
+		if err := json.Unmarshal(rigsData, &registry); err == nil {
+			if rig, ok := registry.Rigs[rigName]; ok {
+				settings.GitURL = rig.GitURL
+				settings.Prefix = rig.Beads.Prefix
+			}
+		}
+	}
+
+	// Load from <rig>/mayor/rig/settings/config.json
+	configPath := filepath.Join(l.TownRoot, rigName, "mayor", "rig", "settings", "config.json")
+	configData, err := os.ReadFile(configPath)
+	if err == nil {
+		var config rigConfig
+		if err := json.Unmarshal(configData, &config); err == nil {
+			settings.Theme = config.Theme
+			settings.MaxWorkers = config.MaxWorkers
+			settings.MergeQueue = config.MergeQueue
+		}
+	}
+
+	return settings, nil
+}
+
+// SaveRigSettings saves settings for a specific rig.
+// It updates both rigs.json (for prefix) and <rig>/mayor/rig/settings/config.json
+func (l *Loader) SaveRigSettings(ctx context.Context, settings *RigSettings) error {
+	if err := settings.Validate(); err != nil {
+		return err
+	}
+
+	// Update rigs.json (only the prefix, preserve other fields)
+	rigsPath := filepath.Join(l.TownRoot, "mayor", "rigs.json")
+	rigsData, err := os.ReadFile(rigsPath)
+	if err != nil {
+		return fmt.Errorf("reading rigs.json: %w", err)
+	}
+
+	var registry rigsRegistry
+	if err := json.Unmarshal(rigsData, &registry); err != nil {
+		return fmt.Errorf("parsing rigs.json: %w", err)
+	}
+
+	if rig, ok := registry.Rigs[settings.Name]; ok {
+		rig.Beads.Prefix = settings.Prefix
+		registry.Rigs[settings.Name] = rig
+
+		updatedData, err := json.MarshalIndent(registry, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling rigs.json: %w", err)
+		}
+
+		if err := os.WriteFile(rigsPath, updatedData, 0644); err != nil {
+			return fmt.Errorf("writing rigs.json: %w", err)
+		}
+	}
+
+	// Update <rig>/mayor/rig/settings/config.json
+	configPath := filepath.Join(l.TownRoot, settings.Name, "mayor", "rig", "settings", "config.json")
+
+	// Ensure directory exists
+	configDir := filepath.Dir(configPath)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("creating settings directory: %w", err)
+	}
+
+	config := rigConfig{
+		Theme:      settings.Theme,
+		MaxWorkers: settings.MaxWorkers,
+		MergeQueue: settings.MergeQueue,
+	}
+
+	configData, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, configData, 0644); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+
+	return nil
+}
