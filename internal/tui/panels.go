@@ -544,8 +544,16 @@ func (s *SidebarState) clampSelection() {
 	}
 }
 
-// RenderSidebar renders the sidebar with all sections
-func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, focused bool) string {
+// SidebarOptions provides optional configuration for sidebar rendering.
+type SidebarOptions struct {
+	// LastMergeTime is used to show when the last merge occurred (for empty queue state)
+	LastMergeTime time.Time
+}
+
+// RenderSidebar renders the sidebar with all sections.
+// snap is used to check refinery status for the merge queue empty state.
+// opts provides optional configuration like last merge time.
+func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, focused bool, opts *SidebarOptions) string {
 	innerWidth := width - 4
 	innerHeight := height - 2
 
@@ -582,7 +590,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		var list string
 		if sec == SectionMergeQueue && len(items) == 0 {
 			// Special empty state for merge queue with context
-			list = renderMQEmptyState(snap, innerWidth)
+			list = renderMQEmptyState(snap, opts, isActive, innerWidth)
 		} else if sec == SectionAgents {
 			// Special handling for agents section with loading/error states
 			list = renderAgentsList(state, items, isActive, innerWidth, sectionHeight)
@@ -696,8 +704,9 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 	return nil
 }
 
-// renderMQEmptyState renders the merge queue empty state with refinery context
-func renderMQEmptyState(snap *data.Snapshot, width int) string {
+// renderMQEmptyState renders the merge queue empty state with refinery context.
+// This helps beginners understand that an empty queue is normal and healthy.
+func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool, width int) string {
 	var lines []string
 
 	// Find refinery agents and their status
@@ -727,6 +736,17 @@ func renderMQEmptyState(snap *data.Snapshot, width int) string {
 
 	// Healthy empty hint
 	lines = append(lines, mutedStyle.Render("  Queue clear - work landing"))
+
+	// Last merge time (if available)
+	if opts != nil && !opts.LastMergeTime.IsZero() {
+		ago := formatDuration(time.Since(opts.LastMergeTime))
+		lines = append(lines, mutedStyle.Render("  Last merge: "+ago+" ago"))
+	}
+
+	// Hint for beginners when section is active
+	if isActive {
+		lines = append(lines, mutedStyle.Render("  Run 'gt done' to submit work"))
+	}
 
 	return strings.Join(lines, "\n")
 }

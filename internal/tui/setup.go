@@ -22,6 +22,9 @@ type SetupWizard struct {
 	statusMsg   string
 	width       int
 	height      int
+
+	// Dependency check results
+	depCheck *DependencyCheckResult
 }
 
 type setupState int
@@ -53,9 +56,13 @@ func NewSetupWizard() *SetupWizard {
 	input.Width = 50
 	input.Prompt = ""
 
+	// Check dependencies upfront
+	depCheck := CheckDependencies(nil, home)
+
 	return &SetupWizard{
 		pathInput: input,
 		state:     setupStateInput,
+		depCheck:  depCheck,
 	}
 }
 
@@ -100,6 +107,11 @@ func (w *SetupWizard) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return w, tea.Quit
 
 		case "enter":
+			// Block installation if dependencies are missing
+			if w.depCheck != nil && !w.depCheck.AllFound {
+				return w, nil
+			}
+
 			path := w.pathInput.Value()
 			if path == "" {
 				return w, nil
@@ -113,6 +125,12 @@ func (w *SetupWizard) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			w.state = setupStateInstalling
 			w.statusMsg = "Installing Gas Town..."
 			return w, w.installCmd(path)
+
+		case "r":
+			// Recheck dependencies
+			home, _ := os.UserHomeDir()
+			w.depCheck = CheckDependencies(nil, home)
+			return w, nil
 		}
 
 		// Update text input for other keys
@@ -211,27 +229,58 @@ func (w *SetupWizard) renderInputState(width int) string {
 		"autonomous AI agents (polecats, witnesses, refineries) across",
 		"your projects.",
 		"",
-		"Choose a location for your town root directory:",
-		"",
 	}
 
-	// Path input
-	pathLabel := formLabelFocusedStyle.Render("Town Root")
-	pathInput := formInputFocusedStyle.Width(width - 4).Render(w.pathInput.View())
+	// Dependency status section
+	var depSection []string
+	depSection = append(depSection, headerStyle.Render("Required Tools:"))
 
-	help := []string{
-		"",
-		mutedStyle.Render("This directory will contain:"),
-		mutedStyle.Render("  • CLAUDE.md     - Mayor configuration"),
-		mutedStyle.Render("  • mayor/        - Town management"),
-		mutedStyle.Render("  • .beads/       - Issue tracking"),
-		"",
-		mutedStyle.Render("Enter: install | Esc: quit"),
+	if w.depCheck != nil {
+		depSection = append(depSection, RenderDependencyStatus(w.depCheck))
+
+		if !w.depCheck.AllFound {
+			depSection = append(depSection, "")
+			depSection = append(depSection, RenderInstallGuidance(w.depCheck))
+			depSection = append(depSection, "")
+			depSection = append(depSection, formErrorStyle.Render("Please install missing tools before continuing."))
+			depSection = append(depSection, mutedStyle.Render("Press 'r' to recheck after installing."))
+		}
+	}
+
+	// Path input section (only interactive if deps are satisfied)
+	var pathSection []string
+	if w.depCheck == nil || w.depCheck.AllFound {
+		pathSection = append(pathSection, "")
+		pathSection = append(pathSection, "Choose a location for your town root directory:")
+		pathSection = append(pathSection, "")
+		pathLabel := formLabelFocusedStyle.Render("Town Root")
+		pathInput := formInputFocusedStyle.Width(width - 4).Render(w.pathInput.View())
+		pathSection = append(pathSection, pathLabel, pathInput)
+	}
+
+	// Help section
+	var help []string
+	if w.depCheck == nil || w.depCheck.AllFound {
+		help = []string{
+			"",
+			mutedStyle.Render("This directory will contain:"),
+			mutedStyle.Render("  • CLAUDE.md     - Mayor configuration"),
+			mutedStyle.Render("  • mayor/        - Town management"),
+			mutedStyle.Render("  • .beads/       - Issue tracking"),
+			"",
+			mutedStyle.Render("Enter: install | Esc: quit"),
+		}
+	} else {
+		help = []string{
+			"",
+			mutedStyle.Render("r: recheck | Esc: quit"),
+		}
 	}
 
 	parts := []string{title}
 	parts = append(parts, intro...)
-	parts = append(parts, pathLabel, pathInput)
+	parts = append(parts, depSection...)
+	parts = append(parts, pathSection...)
 	parts = append(parts, help...)
 
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)

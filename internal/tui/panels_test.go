@@ -18,7 +18,7 @@ func TestRenderMQEmptyState_RefineryRunning(t *testing.T) {
 		},
 	}
 
-	result := renderMQEmptyState(snap, 40)
+	result := renderMQEmptyState(snap, nil, false, 40)
 
 	if !strings.Contains(result, "Refinery idle") {
 		t.Errorf("expected 'Refinery idle' in output, got: %s", result)
@@ -37,7 +37,7 @@ func TestRenderMQEmptyState_RefineryStopped(t *testing.T) {
 		},
 	}
 
-	result := renderMQEmptyState(snap, 40)
+	result := renderMQEmptyState(snap, nil, false, 40)
 
 	if !strings.Contains(result, "Refinery stopped") {
 		t.Errorf("expected 'Refinery stopped' in output, got: %s", result)
@@ -56,7 +56,7 @@ func TestRenderMQEmptyState_NoRefinery(t *testing.T) {
 		},
 	}
 
-	result := renderMQEmptyState(snap, 40)
+	result := renderMQEmptyState(snap, nil, false, 40)
 
 	if !strings.Contains(result, "No refinery configured") {
 		t.Errorf("expected 'No refinery configured' in output, got: %s", result)
@@ -64,13 +64,66 @@ func TestRenderMQEmptyState_NoRefinery(t *testing.T) {
 }
 
 func TestRenderMQEmptyState_NilSnapshot(t *testing.T) {
-	result := renderMQEmptyState(nil, 40)
+	result := renderMQEmptyState(nil, nil, false, 40)
 
 	if !strings.Contains(result, "No refinery configured") {
 		t.Errorf("expected 'No refinery configured' in output for nil snapshot, got: %s", result)
 	}
 	if !strings.Contains(result, "Queue clear") {
 		t.Errorf("expected 'Queue clear' hint in output, got: %s", result)
+	}
+}
+
+func TestRenderMQEmptyState_WithLastMergeTime(t *testing.T) {
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+	}
+	opts := &SidebarOptions{
+		LastMergeTime: time.Now().Add(-5 * time.Minute),
+	}
+
+	result := renderMQEmptyState(snap, opts, false, 40)
+
+	if !strings.Contains(result, "Refinery idle") {
+		t.Errorf("expected 'Refinery idle' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Last merge:") {
+		t.Errorf("expected 'Last merge:' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "ago") {
+		t.Errorf("expected 'ago' in last merge time, got: %s", result)
+	}
+}
+
+func TestRenderMQEmptyState_ActiveShowsHint(t *testing.T) {
+	result := renderMQEmptyState(nil, nil, true, 40)
+
+	if !strings.Contains(result, "gt done") {
+		t.Errorf("expected 'gt done' hint when section is active, got: %s", result)
+	}
+}
+
+func TestRenderMQEmptyState_InactiveNoHint(t *testing.T) {
+	result := renderMQEmptyState(nil, nil, false, 40)
+
+	if strings.Contains(result, "gt done") {
+		t.Errorf("expected no 'gt done' hint when section is inactive, got: %s", result)
+	}
+}
+
+func TestRenderMQEmptyState_ZeroLastMergeTime(t *testing.T) {
+	opts := &SidebarOptions{
+		LastMergeTime: time.Time{}, // Zero time
+	}
+	result := renderMQEmptyState(nil, opts, false, 40)
+
+	// Should not show last merge time for zero time
+	if strings.Contains(result, "Last merge:") {
+		t.Errorf("expected no 'Last merge:' when time is zero, got: %s", result)
 	}
 }
 
