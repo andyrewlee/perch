@@ -125,3 +125,13 @@ var (
 	rebaseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFCC00"))
 )
+
+// Mail status styles
+var (
+	mailUnreadStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00BFFF")).
+			Bold(true)
+
+	mailReadStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#666666"))
+)

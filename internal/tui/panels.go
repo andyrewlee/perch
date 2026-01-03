@@ -16,10 +16,11 @@ const (
 	SectionConvoys
 	SectionMergeQueue
 	SectionAgents
+	SectionMail
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 4
+const SectionCount = 5
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -31,6 +32,8 @@ func (s SidebarSection) String() string {
 		return "Merge Queue"
 	case SectionAgents:
 		return "Agents"
+	case SectionMail:
+		return "Mail"
 	default:
 		return "Unknown"
 	}
@@ -146,6 +149,31 @@ func (r rigItem) Status() string {
 	return "idle"
 }
 
+// mailItem wraps data.MailMessage for selection
+type mailItem struct {
+	m data.MailMessage
+}
+
+func (m mailItem) ID() string { return m.m.ID }
+func (m mailItem) Label() string {
+	indicator := ""
+	if !m.m.Read {
+		indicator = "* "
+	}
+	// Truncate subject for display
+	subject := m.m.Subject
+	if len(subject) > 30 {
+		subject = subject[:27] + "..."
+	}
+	return fmt.Sprintf("%s%s", indicator, subject)
+}
+func (m mailItem) Status() string {
+	if !m.m.Read {
+		return "unread"
+	}
+	return "read"
+}
+
 // SidebarState manages sidebar list selection
 type SidebarState struct {
 	Section   SidebarSection
@@ -156,6 +184,7 @@ type SidebarState struct {
 	Convoys []convoyItem
 	MRs     []mrItem
 	Agents  []agentItem
+	Mail    []mailItem
 }
 
 // NewSidebarState creates a new sidebar state
@@ -208,6 +237,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 	}
 
+	// Update mail
+	s.Mail = make([]mailItem, len(snap.Mail))
+	for i, m := range snap.Mail {
+		s.Mail[i] = mailItem{m}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -237,6 +272,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Agents))
 		for i, a := range s.Agents {
 			items[i] = a
+		}
+		return items
+	case SectionMail:
+		items := make([]SelectableItem, len(s.Mail))
+		for i, m := range s.Mail {
+			items[i] = m
 		}
 		return items
 	}
@@ -313,7 +354,7 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 	var sections []string
 
 	// Render each section
-	for sec := SectionRigs; sec <= SectionAgents; sec++ {
+	for sec := SectionRigs; sec <= SectionMail; sec++ {
 		isActive := state.Section == sec
 		header := renderSectionHeader(sec.String(), sec, isActive)
 		items := getSectionItems(state, sec)
@@ -384,6 +425,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Agents))
 		for i, a := range state.Agents {
 			items[i] = a
+		}
+		return items
+	case SectionMail:
+		items := make([]SelectableItem, len(state.Mail))
+		for i, m := range state.Mail {
+			items[i] = m
 		}
 		return items
 	}
@@ -475,6 +522,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 	case SectionAgents:
 		if state.Selection >= 0 && state.Selection < len(state.Agents) {
 			return renderAgentDetails(state.Agents[state.Selection].a, width)
+		}
+	case SectionMail:
+		if state.Selection >= 0 && state.Selection < len(state.Mail) {
+			return renderMailDetails(state.Mail[state.Selection].m, width)
 		}
 	}
 
@@ -644,6 +695,55 @@ func renderRigDetails(r rigItem, width int) string {
 		}
 	}
 	lines = append(lines, fmt.Sprintf("Agents:     %d running", running))
+
+	return strings.Join(lines, "\n")
+}
+
+func renderMailDetails(m data.MailMessage, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Mail"))
+	lines = append(lines, "")
+
+	// Read status badge
+	readBadge := mailReadStyle.Render("●")
+	readText := "Read"
+	if !m.Read {
+		readBadge = mailUnreadStyle.Render("●")
+		readText = "Unread"
+	}
+
+	lines = append(lines, fmt.Sprintf("Status:  %s %s", readBadge, readText))
+	lines = append(lines, fmt.Sprintf("ID:      %s", m.ID))
+	lines = append(lines, fmt.Sprintf("From:    %s", m.From))
+	lines = append(lines, fmt.Sprintf("To:      %s", m.To))
+	lines = append(lines, fmt.Sprintf("Date:    %s", m.Timestamp.Format("2006-01-02 15:04")))
+	if m.ThreadID != "" {
+		lines = append(lines, fmt.Sprintf("Thread:  %s", m.ThreadID))
+	}
+	lines = append(lines, "")
+
+	// Subject
+	lines = append(lines, headerStyle.Render("Subject"))
+	lines = append(lines, m.Subject)
+	lines = append(lines, "")
+
+	// Body (wrap long lines)
+	lines = append(lines, headerStyle.Render("Body"))
+	bodyLines := strings.Split(m.Body, "\n")
+	for _, line := range bodyLines {
+		// Wrap long lines
+		if len(line) > width-4 {
+			for len(line) > width-4 {
+				lines = append(lines, line[:width-4])
+				line = line[width-4:]
+			}
+		}
+		lines = append(lines, line)
+	}
+
+	// Quick actions hint
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Press 'm' to mark read/unread, 'd' to delete"))
 
 	return strings.Join(lines, "\n")
 }

@@ -115,3 +115,18 @@ type Issue struct {
 	DependencyCount int       `json:"dependency_count"`
 	DependentCount  int       `json:"dependent_count"`
 }
+
+// MailMessage represents a mail message in the inbox.
+// Loaded via: gt mail inbox --json
+type MailMessage struct {
+	ID        string    `json:"id"`
+	From      string    `json:"from"`
+	To        string    `json:"to"`
+	Subject   string    `json:"subject"`
+	Body      string    `json:"body"`
+	Timestamp time.Time `json:"timestamp"`
+	Read      bool      `json:"read"`
+	Priority  string    `json:"priority"`
+	Type      string    `json:"type"`
+	ThreadID  string    `json:"thread_id"`
+}
