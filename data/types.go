@@ -131,3 +131,30 @@ type MailMessage struct {
 	Type      string    `json:"type"`
 	ThreadID  string    `json:"thread_id"`
 }
+
+// LifecycleEventType represents the type of lifecycle event.
+type LifecycleEventType string
+
+const (
+	EventSpawn   LifecycleEventType = "spawn"
+	EventWake    LifecycleEventType = "wake"
+	EventNudge   LifecycleEventType = "nudge"
+	EventHandoff LifecycleEventType = "handoff"
+	EventDone    LifecycleEventType = "done"
+	EventCrash   LifecycleEventType = "crash"
+	EventKill    LifecycleEventType = "kill"
+)
+
+// LifecycleEvent represents a single lifecycle event from town.log.
+type LifecycleEvent struct {
+	Timestamp time.Time          // When the event occurred
+	EventType LifecycleEventType // Type of event (spawn, done, kill, etc.)
+	Agent     string             // Agent address (e.g., "perch/dag")
+	Message   string             // Full event message/details
+}
+
+// LifecycleLog holds parsed lifecycle events from town.log.
+type LifecycleLog struct {
+	Events   []LifecycleEvent
+	LoadedAt time.Time
+}

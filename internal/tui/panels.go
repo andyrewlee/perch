@@ -17,10 +17,11 @@ const (
 	SectionMergeQueue
 	SectionAgents
 	SectionMail
+	SectionLifecycle
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 5
+const SectionCount = 6
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -34,6 +35,8 @@ func (s SidebarSection) String() string {
 		return "Agents"
 	case SectionMail:
 		return "Mail"
+	case SectionLifecycle:
+		return "Lifecycle"
 	default:
 		return "Unknown"
 	}
@@ -175,17 +178,61 @@ func (m mailItem) Status() string {
 	return "read"
 }
 
+// lifecycleEventItem wraps data.LifecycleEvent for selection
+type lifecycleEventItem struct {
+	e data.LifecycleEvent
+}
+
+func (l lifecycleEventItem) ID() string { return l.e.Timestamp.Format("150405") + l.e.Agent }
+func (l lifecycleEventItem) Label() string {
+	badge := lifecycleEventBadge(l.e.EventType)
+	timeStr := l.e.Timestamp.Format("15:04")
+	agent := l.e.Agent
+	if len(agent) > 15 {
+		agent = agent[:12] + "..."
+	}
+	return fmt.Sprintf("%s %s %s", badge, timeStr, agent)
+}
+func (l lifecycleEventItem) Status() string { return string(l.e.EventType) }
+
+// lifecycleEventBadge returns a colored badge for the event type
+func lifecycleEventBadge(eventType data.LifecycleEventType) string {
+	switch eventType {
+	case data.EventSpawn:
+		return spawnStyle.Render("+")
+	case data.EventWake:
+		return wakeStyle.Render("~")
+	case data.EventNudge:
+		return nudgeStyle.Render("!")
+	case data.EventHandoff:
+		return handoffStyle.Render(">")
+	case data.EventDone:
+		return doneStyle.Render("✓")
+	case data.EventCrash:
+		return crashStyle.Render("✗")
+	case data.EventKill:
+		return killStyle.Render("×")
+	default:
+		return mutedStyle.Render("?")
+	}
+}
+
 // SidebarState manages sidebar list selection
 type SidebarState struct {
 	Section   SidebarSection
 	Selection int // Index within current section
 
 	// Cached items for each section
-	Rigs    []rigItem
-	Convoys []convoyItem
-	MRs     []mrItem
-	Agents  []agentItem
-	Mail    []mailItem
+	Rigs            []rigItem
+	Convoys         []convoyItem
+	MRs             []mrItem
+	Agents          []agentItem
+	Mail            []mailItem
+	LifecycleEvents []lifecycleEventItem
+
+	// Lifecycle filters
+	LifecycleFilter      data.LifecycleEventType // Empty = show all
+	LifecycleAgentFilter string                  // Empty = show all
 }
 
 // NewSidebarState creates a new sidebar state
@@ -244,6 +291,22 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Mail[i] = mailItem{m}
 	}
 
+	// Update lifecycle events (with filtering)
+	s.LifecycleEvents = nil
+	if snap.Lifecycle != nil {
+		for _, e := range snap.Lifecycle.Events {
+			// Apply type filter
+			if s.LifecycleFilter != "" && e.EventType != s.LifecycleFilter {
+				continue
+			}
+			// Apply agent filter
+			if s.LifecycleAgentFilter != "" && e.Agent != s.LifecycleAgentFilter {
+				continue
+			}
+			s.LifecycleEvents = append(s.LifecycleEvents, lifecycleEventItem{e})
+		}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -279,6 +342,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Mail))
 		for i, m := range s.Mail {
 			items[i] = m
+		}
+		return items
+	case SectionLifecycle:
+		items := make([]SelectableItem, len(s.LifecycleEvents))
+		for i, e := range s.LifecycleEvents {
+			items[i] = e
 		}
 		return items
 	}
@@ -355,7 +424,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionRigs; sec <= SectionMail; sec++ {
+	for sec := SectionRigs; sec <= SectionLifecycle; sec++ {
 		isActive := state.Section == sec
 		header := renderSectionHeader(sec.String(), sec, isActive)
 		items := getSectionItems(state, sec)
@@ -439,6 +508,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Mail))
 		for i, m := range state.Mail {
 			items[i] = m
+		}
+		return items
+	case SectionLifecycle:
+		items := make([]SelectableItem, len(state.LifecycleEvents))
+		for i, e := range state.LifecycleEvents {
+			items[i] = e
 		}
 		return items
 	}
@@ -569,6 +644,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 	case SectionMail:
 		if state.Selection >= 0 && state.Selection < len(state.Mail) {
 			return renderMailDetails(state.Mail[state.Selection].m, width)
+		}
+	case SectionLifecycle:
+		if state.Selection >= 0 && state.Selection < len(state.LifecycleEvents) {
+			return renderLifecycleDetails(state.LifecycleEvents[state.Selection].e, state, width)
 		}
 	}
 
@@ -787,6 +866,53 @@ func renderMailDetails(m data.MailMessage, width int) string {
 	// Quick actions hint
 	lines = append(lines, "")
 	lines = append(lines, mutedStyle.Render("Press 'm' to mark read/unread, 'd' to delete"))
+
+	return strings.Join(lines, "\n")
+}
+
+func renderLifecycleDetails(e data.LifecycleEvent, state *SidebarState, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Lifecycle Event"))
+	lines = append(lines, "")
+
+	// Event type with badge
+	badge := lifecycleEventBadge(e.EventType)
+	lines = append(lines, fmt.Sprintf("Type:      %s %s", badge, string(e.EventType)))
+	lines = append(lines, fmt.Sprintf("Timestamp: %s", e.Timestamp.Format("2006-01-02 15:04:05")))
+	lines = append(lines, fmt.Sprintf("Agent:     %s", e.Agent))
+	lines = append(lines, "")
+
+	// Message
+	lines = append(lines, headerStyle.Render("Message"))
+	// Wrap long lines
+	msg := e.Message
+	if len(msg) > width-4 {
+		for len(msg) > width-4 {
+			lines = append(lines, msg[:width-4])
+			msg = msg[width-4:]
+		}
+	}
+	if msg != "" {
+		lines = append(lines, msg)
+	}
+
+	// Current filters section
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Filters"))
+	if state.LifecycleFilter != "" {
+		lines = append(lines, fmt.Sprintf("Type: %s", string(state.LifecycleFilter)))
+	} else {
+		lines = append(lines, mutedStyle.Render("Type: (all)"))
+	}
+	if state.LifecycleAgentFilter != "" {
+		lines = append(lines, fmt.Sprintf("Agent: %s", state.LifecycleAgentFilter))
+	} else {
+		lines = append(lines, mutedStyle.Render("Agent: (all)"))
+	}
+
+	// Quick actions hint
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("e: cycle type filter | g: filter by this agent | x: clear filters"))
 
 	return strings.Join(lines, "\n")
 }
