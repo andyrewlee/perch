@@ -136,6 +136,29 @@ var (
 			Foreground(lipgloss.Color("#666666"))
 )
 
+// Mail type styles (for message type badges)
+var (
+	mailTypeMergeReadyStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#32CD32")).
+				Bold(true)
+
+	mailTypeMergedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00"))
+
+	mailTypeReworkStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF6666")).
+				Bold(true)
+
+	mailTypeHandoffStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00BFFF"))
+
+	mailTypeNudgeStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFCC00"))
+
+	mailTypeDefaultStyle = lipgloss.NewStyle().
+				Foreground(muted)
+)
+
 // Lifecycle event styles
 var (
 	spawnStyle = lipgloss.NewStyle().

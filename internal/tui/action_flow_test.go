@@ -548,6 +548,10 @@ func TestIsDestructiveComplete(t *testing.T) {
 		{ActionRestartRefinery, true},
 		{ActionStopPolecat, true},
 		{ActionStopAllIdle, true},
+		{ActionMarkMailRead, false},
+		{ActionMarkMailUnread, false},
+		{ActionAckMail, false},
+		{ActionReplyMail, false},
 	}
 
 	for _, tt := range tests {
@@ -577,6 +581,10 @@ func TestActionNameComplete(t *testing.T) {
 		{ActionRestartRefinery, "Restart refinery"},
 		{ActionStopPolecat, "Stop polecat"},
 		{ActionStopAllIdle, "Stop all idle"},
+		{ActionMarkMailRead, "Mark read"},
+		{ActionMarkMailUnread, "Mark unread"},
+		{ActionAckMail, "Acknowledge"},
+		{ActionReplyMail, "Reply"},
 	}
 
 	for _, tt := range tests {
@@ -827,6 +835,26 @@ func TestActionRunnerCommands(t *testing.T) {
 			name:     "AddRigWithPrefix",
 			action:   func(r *ActionRunner) error { return r.AddRig(context.Background(), "newrig", "git@github.com:test/repo", "nr") },
 			expected: []string{"gt", "rig", "add", "newrig", "git@github.com:test/repo", "--prefix", "nr"},
+		},
+		{
+			name:     "MarkMailRead",
+			action:   func(r *ActionRunner) error { return r.MarkMailRead(context.Background(), "hq-123") },
+			expected: []string{"gt", "mail", "read", "hq-123"},
+		},
+		{
+			name:     "MarkMailUnread",
+			action:   func(r *ActionRunner) error { return r.MarkMailUnread(context.Background(), "hq-456") },
+			expected: []string{"gt", "mail", "unread", "hq-456"},
+		},
+		{
+			name:     "AckMail",
+			action:   func(r *ActionRunner) error { return r.AckMail(context.Background(), "hq-789") },
+			expected: []string{"gt", "mail", "ack", "hq-789"},
+		},
+		{
+			name:     "ReplyMail",
+			action:   func(r *ActionRunner) error { return r.ReplyMail(context.Background(), "hq-abc", "Got it, thanks!") },
+			expected: []string{"gt", "mail", "reply", "hq-abc", "-m", "Got it, thanks!"},
 		},
 	}
 
