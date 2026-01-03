@@ -315,7 +315,7 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 	// Render each section
 	for sec := SectionRigs; sec <= SectionAgents; sec++ {
 		isActive := state.Section == sec
-		header := renderSectionHeader(sec.String(), isActive)
+		header := renderSectionHeader(sec.String(), sec, isActive)
 		items := getSectionItems(state, sec)
 		list := renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		sections = append(sections, header, list)
@@ -344,12 +344,20 @@ func RenderSidebar(state *SidebarState, width, height int, focused bool) string 
 	return style.Render(content)
 }
 
-func renderSectionHeader(name string, active bool) string {
+func renderSectionHeader(name string, section SidebarSection, active bool) string {
 	style := headerStyle
 	if active {
 		style = style.Foreground(highlight)
 	}
-	return style.Render(name)
+	header := style.Render(name)
+
+	// Add section description when active
+	if active {
+		if help := SectionHelp(section); help != "" {
+			header += " " + mutedStyle.Render("("+help+")")
+		}
+	}
+	return header
 }
 
 func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
@@ -476,10 +484,14 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 func renderConvoyDetails(c data.Convoy, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Convoy"))
+	lines = append(lines, mutedStyle.Render(ConvoyHelp.Description))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("ID:      %s", c.ID))
 	lines = append(lines, fmt.Sprintf("Title:   %s", c.Title))
 	lines = append(lines, fmt.Sprintf("Status:  %s", c.Status))
+	if statusHelp, ok := ConvoyHelp.Statuses[c.Status]; ok {
+		lines = append(lines, mutedStyle.Render("         "+statusHelp))
+	}
 	lines = append(lines, fmt.Sprintf("Created: %s", c.CreatedAt.Format("2006-01-02 15:04")))
 	return strings.Join(lines, "\n")
 }
@@ -487,6 +499,7 @@ func renderConvoyDetails(c data.Convoy, width int) string {
 func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Merge Request"))
+	lines = append(lines, mutedStyle.Render(MergeQueueHelp.Description))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("ID:       %s", mr.ID))
 	lines = append(lines, fmt.Sprintf("Rig:      %s", rig))
@@ -551,19 +564,29 @@ func renderAgentDetails(a data.Agent, width int) string {
 	lines = append(lines, fmt.Sprintf("Name:    %s", a.Name))
 	lines = append(lines, fmt.Sprintf("Address: %s", a.Address))
 	lines = append(lines, fmt.Sprintf("Role:    %s", a.Role))
+	if roleHelp := RoleHelp(a.Role); roleHelp != "" {
+		lines = append(lines, mutedStyle.Render("         "+roleHelp))
+	}
 	lines = append(lines, fmt.Sprintf("Session: %s", a.Session))
 
-	// Status with badge
+	// Status with badge and explanation
 	badge := agentStatusBadge(a.Running, a.HasWork, a.UnreadMail)
 	statusText := agentStatusText(a.Running, a.HasWork, a.UnreadMail)
 	lines = append(lines, fmt.Sprintf("Status:  %s %s", badge, statusText))
+	statusHelp := StatusHelp(a.Running, a.HasWork, a.UnreadMail)
+	lines = append(lines, mutedStyle.Render("         "+statusHelp))
 
 	if a.HasWork {
+		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("Work:    %s", a.FirstSubject))
 	}
 	if a.UnreadMail > 0 {
 		lines = append(lines, fmt.Sprintf("Mail:    %d unread", a.UnreadMail))
 	}
+
+	// Action hints based on state
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Press 'o' to open logs"))
 
 	return strings.Join(lines, "\n")
 }
@@ -571,17 +594,20 @@ func renderAgentDetails(a data.Agent, width int) string {
 func renderRigDetails(r rigItem, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Rig"))
+	lines = append(lines, mutedStyle.Render("A project workspace with its own agents and merge queue"))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("Name:       %s", r.r.Name))
 	lines = append(lines, "")
 
-	// Worker counts
+	// Worker counts with explanations
 	lines = append(lines, headerStyle.Render("Workers"))
 	lines = append(lines, fmt.Sprintf("Polecats:   %d", r.r.PolecatCount))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Polecats))
 	lines = append(lines, fmt.Sprintf("Crews:      %d", r.r.CrewCount))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Crews))
 	lines = append(lines, "")
 
-	// Infrastructure status
+	// Infrastructure status with explanations
 	lines = append(lines, headerStyle.Render("Infrastructure"))
 	witnessStatus := "No"
 	if r.r.HasWitness {
@@ -592,8 +618,11 @@ func renderRigDetails(r rigItem, width int) string {
 		refineryStatus = "Yes"
 	}
 	lines = append(lines, fmt.Sprintf("Witness:    %s", witnessStatus))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Witness))
 	lines = append(lines, fmt.Sprintf("Refinery:   %s", refineryStatus))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Refinery))
 	lines = append(lines, fmt.Sprintf("Merge Queue: %d items", r.mrCount))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.MergeQueue))
 	lines = append(lines, "")
 
 	// Hooks status
@@ -605,6 +634,7 @@ func renderRigDetails(r rigItem, width int) string {
 	}
 	lines = append(lines, headerStyle.Render("Activity"))
 	lines = append(lines, fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), activeHooks))
+	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Hooks))
 
 	// Running agents in this rig
 	running := 0
