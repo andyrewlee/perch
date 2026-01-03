@@ -988,6 +988,11 @@ func (m Model) buildOverviewContent() string {
 		headerLine += "  " + mutedStyle.Render("updated "+refreshStr)
 	}
 	lines = append(lines, headerLine)
+
+	// Operational state banner (only show if issues detected)
+	if m.snapshot.OperationalState != nil && m.snapshot.OperationalState.HasIssues() {
+		lines = append(lines, m.buildOperationalBanner())
+	}
 	lines = append(lines, "")
 
 	// Compact rig clusters visualization
@@ -1020,6 +1025,44 @@ func (m Model) buildOverviewContent() string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// buildOperationalBanner creates a status banner for operational issues
+func (m Model) buildOperationalBanner() string {
+	state := m.snapshot.OperationalState
+	if state == nil {
+		return ""
+	}
+
+	var parts []string
+
+	// Degraded mode - most severe
+	if state.DegradedMode {
+		parts = append(parts, degradedStyle.Render("⚠ DEGRADED MODE"))
+	}
+
+	// Patrol muted
+	if state.PatrolMuted {
+		parts = append(parts, mutedBannerStyle.Render("⏸ PATROL MUTED"))
+	}
+
+	// Watchdog unhealthy
+	if !state.WatchdogHealthy {
+		parts = append(parts, warningStyle.Render("⚠ WATCHDOG DOWN"))
+	}
+
+	// Show individual issues if not covered above
+	if len(state.Issues) > 0 && !state.DegradedMode && state.WatchdogHealthy {
+		for _, issue := range state.Issues {
+			parts = append(parts, warningStyle.Render("• "+issue))
+		}
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, "  ")
 }
 
 // buildRigClusters creates a compact visual representation of rig status

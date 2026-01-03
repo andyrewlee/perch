@@ -198,18 +198,73 @@ func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
 	return mail, nil
 }
 
+// LoadOperationalState loads the operational state of the town.
+// This checks environment variables, deacon status, and agent health.
+func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *OperationalState {
+	state := &OperationalState{
+		WatchdogHealthy:       true, // Assume healthy unless proven otherwise
+		LastWitnessHeartbeat:  make(map[string]time.Time),
+		LastRefineryHeartbeat: make(map[string]time.Time),
+	}
+
+	// Check GT_DEGRADED environment variable
+	if os.Getenv("GT_DEGRADED") != "" {
+		state.DegradedMode = true
+		state.Issues = append(state.Issues, "tmux unavailable - running in degraded mode")
+	}
+
+	// Check GT_PATROL_MUTED environment variable
+	if os.Getenv("GT_PATROL_MUTED") != "" {
+		state.PatrolMuted = true
+	}
+
+	// Check agent status from town data
+	if town != nil {
+		for _, agent := range town.Agents {
+			switch agent.Role {
+			case "health-check": // deacon
+				if agent.Running {
+					state.LastDeaconHeartbeat = time.Now()
+				} else {
+					state.WatchdogHealthy = false
+					state.Issues = append(state.Issues, "deacon not running - watchdog disabled")
+				}
+			}
+		}
+
+		// Check per-rig agents
+		for _, rig := range town.Rigs {
+			for _, agent := range rig.Agents {
+				switch agent.Role {
+				case "witness":
+					if agent.Running {
+						state.LastWitnessHeartbeat[rig.Name] = time.Now()
+					}
+				case "refinery":
+					if agent.Running {
+						state.LastRefineryHeartbeat[rig.Name] = time.Now()
+					}
+				}
+			}
+		}
+	}
+
+	return state
+}
+
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
-	Town         *TownStatus
-	Polecats     []Polecat
-	Convoys      []Convoy
-	MergeQueues  map[string][]MergeRequest
-	Issues       []Issue
-	HookedIssues []Issue // Issues with hooked or in_progress status (active work)
-	Mail         []MailMessage
-	Lifecycle    *LifecycleLog
-	LoadedAt     time.Time
-	Errors       []error
+	Town             *TownStatus
+	Polecats         []Polecat
+	Convoys          []Convoy
+	MergeQueues      map[string][]MergeRequest
+	Issues           []Issue
+	HookedIssues     []Issue // Issues with hooked or in_progress status (active work)
+	Mail             []MailMessage
+	Lifecycle        *LifecycleLog
+	OperationalState *OperationalState
+	LoadedAt         time.Time
+	Errors           []error
 }
 
 // LoadAll loads all data sources into a snapshot.
@@ -310,6 +365,9 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	}()
 
 	wg.Wait()
+
+	// Load operational state (requires town status)
+	snap.OperationalState = l.LoadOperationalState(ctx, snap.Town)
 
 	// Load MQ for each rig (requires town status)
 	if snap.Town != nil {
