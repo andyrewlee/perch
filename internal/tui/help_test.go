@@ -8,7 +8,7 @@ import (
 )
 
 func TestHelpOverlay_Toggle(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.width = 100
 	m.height = 40
 	m.ready = true
@@ -54,7 +54,7 @@ func TestHelpOverlay_FirstRun(t *testing.T) {
 }
 
 func TestHelpOverlay_Content(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.width = 100
 	m.height = 80 // Larger to prevent truncation
 	m.ready = true
@@ -95,7 +95,7 @@ func TestHelpOverlay_Content(t *testing.T) {
 }
 
 func TestHelpOverlay_DismissMessage(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.width = 100
 	m.height = 80 // Larger to prevent truncation
 	m.ready = true
@@ -109,7 +109,7 @@ func TestHelpOverlay_DismissMessage(t *testing.T) {
 }
 
 func TestHelpOverlay_BlocksOtherKeys(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.width = 100
 	m.height = 40
 	m.ready = true
@@ -130,7 +130,7 @@ func TestHelpOverlay_BlocksOtherKeys(t *testing.T) {
 }
 
 func TestFooterShowsHelpHint(t *testing.T) {
-	m := New()
+	m := NewTestModel(t)
 	m.width = 100
 	m.height = 40
 	m.ready = true
