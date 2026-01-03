@@ -100,11 +100,20 @@ func (l *Loader) LoadPolecats(ctx context.Context) ([]Polecat, error) {
 	return polecats, nil
 }
 
-// LoadConvoys loads all convoys.
+// LoadConvoys loads open (active) convoys.
 func (l *Loader) LoadConvoys(ctx context.Context) ([]Convoy, error) {
 	var convoys []Convoy
 	if err := l.execJSON(ctx, &convoys, "gt", "convoy", "list", "--json"); err != nil {
 		return nil, fmt.Errorf("loading convoys: %w", err)
+	}
+	return convoys, nil
+}
+
+// LoadClosedConvoys loads recently landed (closed) convoys.
+func (l *Loader) LoadClosedConvoys(ctx context.Context) ([]Convoy, error) {
+	var convoys []Convoy
+	if err := l.execJSON(ctx, &convoys, "gt", "convoy", "list", "--status=closed", "--json"); err != nil {
+		return nil, fmt.Errorf("loading closed convoys: %w", err)
 	}
 	return convoys, nil
 }
@@ -252,11 +261,115 @@ func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *Op
 	return state
 }
 
+// LoadWorktrees scans crew directories across all rigs to find cross-rig worktrees.
+func (l *Loader) LoadWorktrees(ctx context.Context, rigs []string) ([]Worktree, error) {
+	var worktrees []Worktree
+
+	for _, rig := range rigs {
+		crewDir := fmt.Sprintf("%s/%s/crew", l.TownRoot, rig)
+
+		// Read crew directory entries
+		entries, err := os.ReadDir(crewDir)
+		if err != nil {
+			// Crew directory might not exist or be empty
+			continue
+		}
+
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			name := entry.Name()
+			wtPath := fmt.Sprintf("%s/%s", crewDir, name)
+
+			// Check if this is a git worktree (has .git file, not directory)
+			gitPath := fmt.Sprintf("%s/.git", wtPath)
+			info, err := os.Stat(gitPath)
+			if err != nil {
+				continue
+			}
+
+			// Worktrees have a .git file, not a .git directory
+			if info.IsDir() {
+				continue
+			}
+
+			// Parse the worktree name to extract source rig and name
+			// Format: <source-rig>-<name> e.g., "gastown-joe"
+			sourceRig, sourceName := parseWorktreeName(name)
+
+			// Get git status for the worktree
+			branch, status, clean := getWorktreeStatus(ctx, wtPath)
+
+			worktrees = append(worktrees, Worktree{
+				Rig:        rig,
+				SourceRig:  sourceRig,
+				SourceName: sourceName,
+				Path:       wtPath,
+				Branch:     branch,
+				Clean:      clean,
+				Status:     status,
+			})
+		}
+	}
+
+	return worktrees, nil
+}
+
+// parseWorktreeName extracts source rig and name from worktree directory name.
+// Format: <source-rig>-<name> e.g., "gastown-joe" -> ("gastown", "joe")
+func parseWorktreeName(name string) (sourceRig, sourceName string) {
+	parts := strings.SplitN(name, "-", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return "", name
+}
+
+// getWorktreeStatus gets branch and status for a worktree.
+func getWorktreeStatus(ctx context.Context, path string) (branch, status string, clean bool) {
+	// Get current branch
+	cmd := exec.CommandContext(ctx, "git", "-C", path, "rev-parse", "--abbrev-ref", "HEAD")
+	out, err := cmd.Output()
+	if err == nil {
+		branch = strings.TrimSpace(string(out))
+	} else {
+		branch = "unknown"
+	}
+
+	// Get status summary
+	cmd = exec.CommandContext(ctx, "git", "-C", path, "status", "--porcelain")
+	out, err = cmd.Output()
+	if err != nil {
+		status = "unknown"
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 0 || (len(lines) == 1 && lines[0] == "") {
+		status = "clean"
+		clean = true
+	} else {
+		count := len(lines)
+		if count == 1 {
+			status = "1 uncommitted"
+		} else {
+			status = fmt.Sprintf("%d uncommitted", count)
+		}
+		clean = false
+	}
+
+	return
+}
+
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
 	Town             *TownStatus
 	Polecats         []Polecat
-	Convoys          []Convoy
+	Convoys          []Convoy   // Active/open convoys
+	ClosedConvoys    []Convoy   // Recently landed convoys
+	Worktrees        []Worktree
 	MergeQueues      map[string][]MergeRequest
 	Issues           []Issue
 	HookedIssues     []Issue // Issues with hooked or in_progress status (active work)
@@ -288,8 +401,8 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		snap.Town = town
 	}
 
-	// Parallel loads
-	wg.Add(6)
+	// Parallel loads (polecats, convoys, closedConvoys, issues, mail, hookedIssues, lifecycle)
+	wg.Add(7)
 
 	go func() {
 		defer wg.Done()
@@ -312,6 +425,18 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Errors = append(snap.Errors, err)
 		} else {
 			snap.Convoys = convoys
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+		closedConvoys, err := l.LoadClosedConvoys(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.ClosedConvoys = closedConvoys
 		}
 	}()
 
@@ -371,13 +496,23 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 
 	// Load MQ for each rig (requires town status)
 	if snap.Town != nil {
-		for _, rig := range snap.Town.Rigs {
+		rigNames := make([]string, len(snap.Town.Rigs))
+		for i, rig := range snap.Town.Rigs {
+			rigNames[i] = rig.Name
 			mrs, err := l.LoadMergeQueue(ctx, rig.Name)
 			if err != nil {
 				snap.Errors = append(snap.Errors, err)
 			} else {
 				snap.MergeQueues[rig.Name] = mrs
 			}
+		}
+
+		// Load worktrees (requires rig names)
+		worktrees, err := l.LoadWorktrees(ctx, rigNames)
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.Worktrees = worktrees
 		}
 	}
 

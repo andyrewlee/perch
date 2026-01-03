@@ -19,10 +19,11 @@ const (
 	SectionAgents
 	SectionMail
 	SectionLifecycle
+	SectionWorktrees
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 6
+const SectionCount = 7
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -38,6 +39,8 @@ func (s SidebarSection) String() string {
 		return "Mail"
 	case SectionLifecycle:
 		return "Lifecycle"
+	case SectionWorktrees:
+		return "Worktrees"
 	default:
 		return "Unknown"
 	}
@@ -126,6 +129,24 @@ func agentStatusText(running, hasWork bool, unreadMail int) string {
 	}
 	return "idle"
 }
+
+// worktreeItem wraps data.Worktree for selection
+type worktreeItem struct {
+	wt data.Worktree
+}
+
+func (w worktreeItem) ID() string { return w.wt.Path }
+func (w worktreeItem) Label() string {
+	indicator := ""
+	if !w.wt.Clean {
+		indicator = "!"
+	}
+	if indicator != "" {
+		return fmt.Sprintf("[%s]%s %s-%s", w.wt.Rig, indicator, w.wt.SourceRig, w.wt.SourceName)
+	}
+	return fmt.Sprintf("[%s] %s-%s", w.wt.Rig, w.wt.SourceRig, w.wt.SourceName)
+}
+func (w worktreeItem) Status() string { return w.wt.Status }
 
 // rigItem wraps data.Rig for selection with aggregated counts
 type rigItem struct {
@@ -280,13 +301,18 @@ type SidebarState struct {
 	Section   SidebarSection
 	Selection int // Index within current section
 
+	// Convoy view mode: false = active, true = history (landed)
+	ShowConvoyHistory bool
+
 	// Cached items for each section
 	Rigs            []rigItem
-	Convoys         []convoyItem
+	Convoys         []convoyItem // Active convoys
+	ClosedConvoys   []convoyItem // Landed convoys (history)
 	MRs             []mrItem
 	Agents          []agentItem
 	Mail            []mailItem
 	LifecycleEvents []lifecycleEventItem
+	Worktrees       []worktreeItem
 
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
@@ -305,6 +331,21 @@ func NewSidebarState() *SidebarState {
 		Selection:     0,
 		AgentsLoading: true, // Start in loading state until first successful refresh
 	}
+}
+
+// ToggleConvoyHistory toggles between active and history convoy view.
+func (s *SidebarState) ToggleConvoyHistory() {
+	s.ShowConvoyHistory = !s.ShowConvoyHistory
+	s.Selection = 0
+	s.clampSelection()
+}
+
+// ConvoyViewLabel returns a label describing the current convoy view.
+func (s *SidebarState) ConvoyViewLabel() string {
+	if s.ShowConvoyHistory {
+		return "History"
+	}
+	return "Active"
 }
 
 // UpdateFromSnapshot refreshes the sidebar data from a snapshot
@@ -327,10 +368,16 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 	}
 
-	// Update convoys
+	// Update active convoys
 	s.Convoys = make([]convoyItem, len(snap.Convoys))
 	for i, c := range snap.Convoys {
 		s.Convoys[i] = convoyItem{c}
+	}
+
+	// Update closed/landed convoys
+	s.ClosedConvoys = make([]convoyItem, len(snap.ClosedConvoys))
+	for i, c := range snap.ClosedConvoys {
+		s.ClosedConvoys[i] = convoyItem{c}
 	}
 
 	// Update merge requests (flatten all rigs)
@@ -385,6 +432,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 	}
 
+	// Update worktrees
+	s.Worktrees = make([]worktreeItem, len(snap.Worktrees))
+	for i, wt := range snap.Worktrees {
+		s.Worktrees[i] = worktreeItem{wt}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -399,8 +452,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		}
 		return items
 	case SectionConvoys:
-		items := make([]SelectableItem, len(s.Convoys))
-		for i, c := range s.Convoys {
+		convoys := s.Convoys
+		if s.ShowConvoyHistory {
+			convoys = s.ClosedConvoys
+		}
+		items := make([]SelectableItem, len(convoys))
+		for i, c := range convoys {
 			items[i] = c
 		}
 		return items
@@ -426,6 +483,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.LifecycleEvents))
 		for i, e := range s.LifecycleEvents {
 			items[i] = e
+		}
+		return items
+	case SectionWorktrees:
+		items := make([]SelectableItem, len(s.Worktrees))
+		for i, w := range s.Worktrees {
+			items[i] = w
 		}
 		return items
 	}
@@ -502,9 +565,18 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionRigs; sec <= SectionLifecycle; sec++ {
+	for sec := SectionRigs; sec <= SectionWorktrees; sec++ {
 		isActive := state.Section == sec
-		header := renderSectionHeader(sec.String(), sec, isActive, state)
+		headerText := sec.String()
+		// For convoys, show active/history toggle state
+		if sec == SectionConvoys {
+			if state.ShowConvoyHistory {
+				headerText = "Convoys [H]"
+			} else {
+				headerText = "Convoys [A]"
+			}
+		}
+		header := renderSectionHeader(headerText, sec, isActive, state)
 		items := getSectionItems(state, sec)
 
 		var list string
@@ -581,8 +653,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		}
 		return items
 	case SectionConvoys:
-		items := make([]SelectableItem, len(state.Convoys))
-		for i, c := range state.Convoys {
+		convoys := state.Convoys
+		if state.ShowConvoyHistory {
+			convoys = state.ClosedConvoys
+		}
+		items := make([]SelectableItem, len(convoys))
+		for i, c := range convoys {
 			items[i] = c
 		}
 		return items
@@ -608,6 +684,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.LifecycleEvents))
 		for i, e := range state.LifecycleEvents {
 			items[i] = e
+		}
+		return items
+	case SectionWorktrees:
+		items := make([]SelectableItem, len(state.Worktrees))
+		for i, w := range state.Worktrees {
+			items[i] = w
 		}
 		return items
 	}
@@ -781,8 +863,12 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 			return renderRigDetails(state.Rigs[state.Selection], width)
 		}
 	case SectionConvoys:
-		if state.Selection >= 0 && state.Selection < len(state.Convoys) {
-			return renderConvoyDetails(state.Convoys[state.Selection].c, width)
+		convoys := state.Convoys
+		if state.ShowConvoyHistory {
+			convoys = state.ClosedConvoys
+		}
+		if state.Selection >= 0 && state.Selection < len(convoys) {
+			return renderConvoyDetails(convoys[state.Selection].c, width, state.ShowConvoyHistory)
 		}
 	case SectionMergeQueue:
 		if state.Selection >= 0 && state.Selection < len(state.MRs) {
@@ -801,14 +887,22 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 		if state.Selection >= 0 && state.Selection < len(state.LifecycleEvents) {
 			return renderLifecycleDetails(state.LifecycleEvents[state.Selection].e, state, width)
 		}
+	case SectionWorktrees:
+		if state.Selection >= 0 && state.Selection < len(state.Worktrees) {
+			return renderWorktreeDetails(state.Worktrees[state.Selection].wt, width)
+		}
 	}
 
 	return mutedStyle.Render("Select an item to see details")
 }
 
-func renderConvoyDetails(c data.Convoy, width int) string {
+func renderConvoyDetails(c data.Convoy, width int, isHistory bool) string {
 	var lines []string
-	lines = append(lines, headerStyle.Render("Convoy"))
+	headerText := "Convoy"
+	if isHistory {
+		headerText = "Landed Convoy"
+	}
+	lines = append(lines, headerStyle.Render(headerText))
 	lines = append(lines, mutedStyle.Render(ConvoyHelp.Description))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("ID:      %s", c.ID))
@@ -818,6 +912,13 @@ func renderConvoyDetails(c data.Convoy, width int) string {
 		lines = append(lines, mutedStyle.Render("         "+statusHelp))
 	}
 	lines = append(lines, fmt.Sprintf("Created: %s", c.CreatedAt.Format("2006-01-02 15:04")))
+
+	if isHistory && c.IsLanded() {
+		// For landed convoys, show additional info
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle.Render("This convoy has been completed and landed."))
+	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -941,6 +1042,30 @@ func formatAge(t time.Time) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+func renderWorktreeDetails(wt data.Worktree, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Worktree"))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("Target Rig: %s", wt.Rig))
+	lines = append(lines, fmt.Sprintf("Source:     %s-%s", wt.SourceRig, wt.SourceName))
+	lines = append(lines, fmt.Sprintf("Path:       %s", wt.Path))
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Git Status"))
+	lines = append(lines, fmt.Sprintf("Branch:     %s", wt.Branch))
+
+	statusStyle := idleStyle
+	if !wt.Clean {
+		statusStyle = conflictStyle
+	}
+	lines = append(lines, fmt.Sprintf("Status:     %s", statusStyle.Render(wt.Status)))
+
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Actions"))
+	lines = append(lines, mutedStyle.Render("Press 'x' to remove this worktree"))
+
+	return strings.Join(lines, "\n")
 }
 
 func renderRigDetails(r rigItem, width int) string {
