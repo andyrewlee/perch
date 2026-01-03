@@ -402,6 +402,9 @@ type SidebarState struct {
 	MQsLastRefresh time.Time // Last successful MQ data refresh
 	MQsLoadError   error     // Error from last MQ load attempt (nil if successful)
 	MQsLoading     bool      // True during initial load
+
+	// LastSuccess tracks the last successful refresh time
+	LastSuccess time.Time
 }
 
 // NewSidebarState creates a new sidebar state
@@ -513,9 +516,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Convoys failed to load - find the convoy-specific error if any
 		s.ConvoysLoading = false
-		for _, err := range snap.Errors {
-			if err != nil && strings.Contains(err.Error(), "convoy") {
-				s.ConvoysLoadError = err
+		for _, loadErr := range snap.Errors {
+			if loadErr.Error != nil && strings.Contains(loadErr.Source, "Convoy") {
+				s.ConvoysLoadError = loadErr.Error
 				break
 			}
 		}
@@ -553,9 +556,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 			// No new MRs but we had some before and there are errors
 			// Preserve last-known MRs and set error state
 			s.MQsLoading = false
-			for _, err := range snap.Errors {
-				if err != nil {
-					s.MQsLoadError = err
+			for _, loadErr := range snap.Errors {
+				if loadErr.Error != nil {
+					s.MQsLoadError = loadErr.Error
 					break
 				}
 			}
@@ -570,9 +573,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Town failed to load - can't load MQ without it
 		s.MQsLoading = false
-		for _, err := range snap.Errors {
-			if err != nil {
-				s.MQsLoadError = err
+		for _, loadErr := range snap.Errors {
+			if loadErr.Error != nil {
+				s.MQsLoadError = loadErr.Error
 				break
 			}
 		}
@@ -592,9 +595,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Town failed to load - find the error if any
 		s.AgentsLoading = false
-		for _, err := range snap.Errors {
-			if err != nil {
-				s.AgentsLoadError = err
+		for _, loadErr := range snap.Errors {
+			if loadErr.Error != nil {
+				s.AgentsLoadError = loadErr.Error
 				break
 			}
 		}
@@ -716,6 +719,11 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 	return nil
 }
 
+// HasAlerts returns true if there are load errors/alerts to display
+func (s *SidebarState) HasAlerts() bool {
+	return len(s.Alerts) > 0
+}
+
 // SelectedItem returns the currently selected item, or nil
 func (s *SidebarState) SelectedItem() SelectableItem {
 	items := s.CurrentItems()
@@ -785,7 +793,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		innerHeight = 1
 	}
 
-	// Calculate height per section (5 sections)
+	// Calculate height per section
 	sectionHeight := (innerHeight - SectionCount) / SectionCount // -SectionCount for headers
 	if sectionHeight < 2 {
 		sectionHeight = 2
@@ -2047,3 +2055,4 @@ func beadStatusBadge(status string) string {
 		return mutedStyle.Render("?")
 	}
 }
+

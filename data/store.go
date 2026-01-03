@@ -213,7 +213,7 @@ func (s *Store) LastRefresh() time.Time {
 }
 
 // Errors returns any errors from the last refresh.
-func (s *Store) Errors() []error {
+func (s *Store) Errors() []LoadError {
 	snap := s.Snapshot()
 	if snap == nil {
 		return nil

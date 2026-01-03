@@ -1683,9 +1683,9 @@ func (m Model) buildOverviewContent() string {
 		// Town failed to load - surface the error
 		if m.snapshot.HasErrors() {
 			errMsg := "Failed to load town status"
-			for _, err := range m.snapshot.Errors {
-				if err != nil {
-					errMsg = err.Error()
+			for _, loadErr := range m.snapshot.Errors {
+				if loadErr.Error != nil {
+					errMsg = loadErr.Error.Error()
 					break
 				}
 			}
@@ -2031,6 +2031,9 @@ func (m Model) renderFooter() string {
 			if m.sidebar.Section == SectionWorktrees {
 				helpItems = append(helpItems, "x: remove")
 			}
+			if m.sidebar.Section == SectionErrors {
+				helpItems = append(helpItems, "r: retry")
+			}
 		}
 		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs")
 		if m.sidebar != nil && m.sidebar.Section == SectionAgents {
@@ -2196,7 +2199,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
 		helpKeyStyle.Render("e") + "          Cycle type filter (lifecycle)",
 		helpKeyStyle.Render("g") + "          Filter by agent (lifecycle)",
-		helpKeyStyle.Render("x") + "          Clear filters (lifecycle)",
+		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
