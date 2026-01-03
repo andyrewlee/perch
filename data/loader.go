@@ -164,6 +164,26 @@ func (l *Loader) LoadOpenIssues(ctx context.Context) ([]Issue, error) {
 	return issues, nil
 }
 
+// LoadHookedIssues loads issues with hooked status.
+// These represent active work assigned to agents via beads.
+func (l *Loader) LoadHookedIssues(ctx context.Context) ([]Issue, error) {
+	var issues []Issue
+	if err := l.execJSON(ctx, &issues, "bd", "list", "--json", "--status", "hooked", "--limit", "0"); err != nil {
+		return nil, fmt.Errorf("loading hooked issues: %w", err)
+	}
+	return issues, nil
+}
+
+// LoadInProgressIssues loads issues with in_progress status.
+// These also represent active work assigned to agents.
+func (l *Loader) LoadInProgressIssues(ctx context.Context) ([]Issue, error) {
+	var issues []Issue
+	if err := l.execJSON(ctx, &issues, "bd", "list", "--json", "--status", "in_progress", "--limit", "0"); err != nil {
+		return nil, fmt.Errorf("loading in_progress issues: %w", err)
+	}
+	return issues, nil
+}
+
 // LoadMail loads mail messages from the inbox.
 func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
 	var mail []MailMessage
@@ -175,14 +195,15 @@ func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
 
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
-	Town        *TownStatus
-	Polecats    []Polecat
-	Convoys     []Convoy
-	MergeQueues map[string][]MergeRequest
-	Issues      []Issue
-	Mail        []MailMessage
-	LoadedAt    time.Time
-	Errors      []error
+	Town         *TownStatus
+	Polecats     []Polecat
+	Convoys      []Convoy
+	MergeQueues  map[string][]MergeRequest
+	Issues       []Issue
+	HookedIssues []Issue // Issues with hooked or in_progress status (active work)
+	Mail         []MailMessage
+	LoadedAt     time.Time
+	Errors       []error
 }
 
 // LoadAll loads all data sources into a snapshot.
@@ -207,7 +228,7 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	}
 
 	// Parallel loads
-	wg.Add(4)
+	wg.Add(5)
 
 	go func() {
 		defer wg.Done()
@@ -257,6 +278,19 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		}
 	}()
 
+	go func() {
+		defer wg.Done()
+		// Load both hooked and in_progress issues as active work
+		hooked, err := l.LoadHookedIssues(ctx)
+		mu.Lock()
+		defer mu.Unlock()
+		if err != nil {
+			snap.Errors = append(snap.Errors, err)
+		} else {
+			snap.HookedIssues = hooked
+		}
+	}()
+
 	wg.Wait()
 
 	// Load MQ for each rig (requires town status)
@@ -270,6 +304,9 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			}
 		}
 	}
+
+	// Enrich town status with bead-based hook data
+	snap.EnrichWithHookedBeads()
 
 	return snap
 }
@@ -311,4 +348,79 @@ func (s *Snapshot) UnreadMail() []MailMessage {
 		}
 	}
 	return unread
+}
+
+// EnrichWithHookedBeads reconciles bead-based hook state with town status.
+// This updates:
+// - Summary.ActiveHooks to reflect actual hooked beads
+// - Agent.HasWork and Agent.FirstSubject based on bead assignees
+// - Rig.Hooks to reflect which agents have hooked work
+func (s *Snapshot) EnrichWithHookedBeads() {
+	if s.Town == nil || len(s.HookedIssues) == 0 {
+		return
+	}
+
+	// Build map of assignee address -> hooked issue
+	// Assignee format: "perch/polecats/slit" or "rig/role/name"
+	hookedByAssignee := make(map[string]*Issue)
+	for i := range s.HookedIssues {
+		issue := &s.HookedIssues[i]
+		if issue.Assignee != "" {
+			hookedByAssignee[issue.Assignee] = issue
+		}
+	}
+
+	// Update Summary.ActiveHooks
+	s.Town.Summary.ActiveHooks = len(s.HookedIssues)
+
+	// Update agents at the town level
+	for i := range s.Town.Agents {
+		agent := &s.Town.Agents[i]
+		if issue, ok := hookedByAssignee[agent.Address]; ok {
+			agent.HasWork = true
+			agent.FirstSubject = issue.Title
+		}
+	}
+
+	// Update agents and hooks within each rig
+	for i := range s.Town.Rigs {
+		rig := &s.Town.Rigs[i]
+
+		// Update rig-level agents
+		for j := range rig.Agents {
+			agent := &rig.Agents[j]
+			if issue, ok := hookedByAssignee[agent.Address]; ok {
+				agent.HasWork = true
+				agent.FirstSubject = issue.Title
+			}
+		}
+
+		// Update rig hooks
+		for j := range rig.Hooks {
+			hook := &rig.Hooks[j]
+			// Hook agent format: "perch/ace" -> try "perch/polecats/ace"
+			// Check both formats
+			if _, ok := hookedByAssignee[hook.Agent]; ok {
+				hook.HasWork = true
+			}
+			// Try polecat format: rig/polecats/name
+			parts := splitAgentAddress(hook.Agent)
+			if len(parts) == 2 {
+				polecatAddr := parts[0] + "/polecats/" + parts[1]
+				if _, ok := hookedByAssignee[polecatAddr]; ok {
+					hook.HasWork = true
+				}
+			}
+		}
+	}
+}
+
+// splitAgentAddress splits "rig/name" into ["rig", "name"]
+func splitAgentAddress(addr string) []string {
+	for i := 0; i < len(addr); i++ {
+		if addr[i] == '/' {
+			return []string{addr[:i], addr[i+1:]}
+		}
+	}
+	return []string{addr}
 }
