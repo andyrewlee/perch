@@ -29,6 +29,7 @@ const (
 	ActionMarkMailUnread // Mark a mail message as unread
 	ActionAckMail        // Acknowledge a mail message
 	ActionReplyMail      // Quick reply to a mail message
+	ActionRemoveWorktree
 )
 
 // Action represents a user-triggered action with its result.
@@ -181,6 +182,12 @@ func (r *ActionRunner) ReplyMail(ctx context.Context, mailID, message string) er
 	return r.runCommand(ctx, "gt", "mail", "reply", mailID, "-m", message)
 }
 
+// RemoveWorktree removes a git worktree.
+// Uses git worktree remove directly since gt worktree remove requires crew context.
+func (r *ActionRunner) RemoveWorktree(ctx context.Context, worktreePath string) error {
+	return r.runCommand(ctx, "git", "worktree", "remove", worktreePath)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -229,7 +236,7 @@ type ConfirmDialog struct {
 func IsDestructive(action ActionType) bool {
 	switch action {
 	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery,
-		ActionStopPolecat, ActionStopAllIdle:
+		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree:
 		return true
 	default:
 		return false

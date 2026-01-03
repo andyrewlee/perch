@@ -213,6 +213,8 @@ func (m Model) actionCmd(action ActionType, target string) tea.Cmd {
 			err = m.actionRunner.StopPolecat(ctx, target)
 		case ActionStopAllIdle:
 			err = m.actionRunner.StopAllIdlePolecats(ctx, target)
+		case ActionRemoveWorktree:
+			err = m.actionRunner.RemoveWorktree(ctx, target)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -608,6 +610,26 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "7":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionWorktrees
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
+	case "H":
+		// Toggle convoy history view (only when in Convoys section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionConvoys {
+			m.sidebar.ToggleConvoyHistory()
+			viewName := "active"
+			if m.sidebar.ShowConvoyHistory {
+				viewName = "history"
+			}
+			m.setStatus("Showing "+viewName+" convoys", false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		return m, nil
+
 	case "e":
 		// Cycle lifecycle type filter (only in Lifecycle section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
@@ -630,6 +652,26 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.LifecycleFilter = ""
 			m.sidebar.LifecycleAgentFilter = ""
 			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			return m, nil
+		}
+		// Remove worktree (only when in Worktrees section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionWorktrees {
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Worktrees) {
+				m.setStatus("No worktree selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			wt := m.sidebar.Worktrees[m.sidebar.Selection]
+			if !wt.wt.Clean {
+				m.setStatus("Worktree has uncommitted changes. Use --force to remove.", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			m.confirmDialog = &ConfirmDialog{
+				Title:   "Confirm Remove",
+				Message: "Remove worktree '" + wt.wt.SourceRig + "-" + wt.wt.SourceName + "' from " + wt.wt.Rig + "? (y/n)",
+				Action:  ActionRemoveWorktree,
+				Target:  wt.wt.Path,
+			}
+			return m, nil
 		}
 		return m, nil
 	}
@@ -863,6 +905,8 @@ func actionName(action ActionType) string {
 		return "Acknowledge"
 	case ActionReplyMail:
 		return "Reply"
+	case ActionRemoveWorktree:
+		return "Remove worktree"
 	default:
 		return "Action"
 	}
@@ -1274,9 +1318,12 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-6: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-7: jump")
 			if m.sidebar.Section == SectionMergeQueue {
 				helpItems = append(helpItems, "n: nudge")
+			}
+			if m.sidebar.Section == SectionConvoys {
+				helpItems = append(helpItems, "H: history")
 			}
 			if m.sidebar.Section == SectionAgents {
 				helpItems = append(helpItems, "c: stop idle", "C: stop all idle")
@@ -1286,6 +1333,9 @@ func (m Model) renderFooter() string {
 			}
 			if m.sidebar.Section == SectionMail {
 				helpItems = append(helpItems, "m: read/unread", "y: ack")
+			}
+			if m.sidebar.Section == SectionWorktrees {
+				helpItems = append(helpItems, "x: remove")
 			}
 		}
 		helpItems = append(helpItems, "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
@@ -1412,6 +1462,9 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("◌=stopped") + "  Agent session not running",
 		"",
 		helpKeyStyle.Render("Convoys") + "    Groups of related work items",
+		"            Press H to toggle active/history view",
+		helpKeyStyle.Render("Worktrees") + "  Cross-rig git worktrees",
+		"            Press x to remove a worktree",
 		helpKeyStyle.Render("Beads") + "      Issue tracking (tasks, bugs, features)",
 		"",
 		helpHeaderStyle.Render("Behind the Scenes"),
@@ -1428,7 +1481,9 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-6") + "        Jump to section (1=Rigs, 2=Convoys, 3=MQ, 4=Agents, 5=Mail, 6=Lifecycle)",
+		helpKeyStyle.Render("1-7") + "        Jump to section (1=Rigs...7=Worktrees)",
+		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
+		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("A") + "          Attach to a different town",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",

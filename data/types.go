@@ -89,6 +89,16 @@ type Convoy struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// IsActive returns true if the convoy is open/active.
+func (c Convoy) IsActive() bool {
+	return c.Status == "open"
+}
+
+// IsLanded returns true if the convoy is closed/landed.
+func (c Convoy) IsLanded() bool {
+	return c.Status == "closed"
+}
+
 // MergeRequest represents an item in the merge queue.
 // Loaded via: gt mq list <rig> --json
 type MergeRequest struct {
@@ -102,6 +112,18 @@ type MergeRequest struct {
 	NeedsRebase  bool   `json:"needs_rebase"`
 	ConflictInfo string `json:"conflict_info,omitempty"`
 	LastChecked  string `json:"last_checked,omitempty"`
+}
+
+// Worktree represents a cross-rig git worktree.
+// Scanned from crew directories across all rigs.
+type Worktree struct {
+	Rig        string `json:"rig"`         // Target rig where worktree exists
+	SourceRig  string `json:"source_rig"`  // Source rig/identity that created it
+	SourceName string `json:"source_name"` // Source crew member name
+	Path       string `json:"path"`        // Full path to worktree
+	Branch     string `json:"branch"`      // Current branch
+	Clean      bool   `json:"clean"`       // True if no uncommitted changes
+	Status     string `json:"status"`      // Status summary (e.g., "clean", "2 uncommitted")
 }
 
 // Issue represents a beads issue.
