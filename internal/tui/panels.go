@@ -835,8 +835,15 @@ func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSecti
 	return strings.Join(lines, "\n")
 }
 
+// AuditTimelineState holds the audit timeline data for the selected agent.
+type AuditTimelineState struct {
+	Actor   string
+	Entries []data.AuditEntry
+	Loading bool
+}
+
 // RenderDetails renders the details panel for the selected item
-func RenderDetails(state *SidebarState, snap *data.Snapshot, width, height int, focused bool) string {
+func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width, height int, focused bool) string {
 	innerWidth := width - 4
 	innerHeight := height - 2
 
@@ -848,7 +855,7 @@ func RenderDetails(state *SidebarState, snap *data.Snapshot, width, height int, 
 	}
 
 	title := titleStyle.Render("Details")
-	content := renderSelectedDetails(state, snap, innerWidth)
+	content := renderSelectedDetails(state, snap, audit, innerWidth)
 
 	// Pad content to fill space
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
@@ -872,7 +879,7 @@ func RenderDetails(state *SidebarState, snap *data.Snapshot, width, height int, 
 	return style.Render(inner)
 }
 
-func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) string {
+func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width int) string {
 	if state == nil || snap == nil {
 		return mutedStyle.Render("No data loaded")
 	}
@@ -897,7 +904,7 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, width int) 
 		}
 	case SectionAgents:
 		if state.Selection >= 0 && state.Selection < len(state.Agents) {
-			return renderAgentDetails(state.Agents[state.Selection].a, width)
+			return renderAgentDetails(state.Agents[state.Selection].a, audit, width)
 		}
 	case SectionMail:
 		if state.Selection >= 0 && state.Selection < len(state.Mail) {
@@ -1003,7 +1010,7 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderAgentDetails(a data.Agent, width int) string {
+func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Agent"))
 	lines = append(lines, "")
@@ -1038,6 +1045,11 @@ func renderAgentDetails(a data.Agent, width int) string {
 		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("Mail:    %d unread", a.UnreadMail))
 	}
+
+	// Audit timeline section
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Activity Timeline"))
+	lines = append(lines, renderAuditTimeline(audit, width))
 
 	// Action hints based on state
 	lines = append(lines, "")
@@ -1086,6 +1098,84 @@ func renderWorktreeDetails(wt data.Worktree, width int) string {
 	lines = append(lines, mutedStyle.Render("Press 'x' to remove this worktree"))
 
 	return strings.Join(lines, "\n")
+}
+
+// renderAuditTimeline renders the audit timeline entries.
+func renderAuditTimeline(audit *AuditTimelineState, width int) string {
+	if audit == nil {
+		return mutedStyle.Render("  (no timeline)")
+	}
+	if audit.Loading {
+		return mutedStyle.Render("  Loading...")
+	}
+	if len(audit.Entries) == 0 {
+		return mutedStyle.Render("  (no activity)")
+	}
+
+	var lines []string
+	for i, entry := range audit.Entries {
+		if i >= 10 { // Limit display to 10 entries
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  ... and %d more", len(audit.Entries)-10)))
+			break
+		}
+
+		// Format timestamp as relative time or short date
+		timeStr := formatRelativeTime(entry.Timestamp)
+
+		// Format entry type with icon
+		icon := auditTypeIcon(entry.Type)
+
+		// Truncate summary if needed
+		summary := entry.Summary
+		maxSummaryLen := width - len(timeStr) - len(icon) - 6
+		if maxSummaryLen > 0 && len(summary) > maxSummaryLen {
+			summary = summary[:maxSummaryLen-3] + "..."
+		}
+
+		line := fmt.Sprintf("  %s %s %s", mutedStyle.Render(timeStr), icon, summary)
+		lines = append(lines, line)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// formatRelativeTime formats a timestamp as relative time (e.g., "2m ago", "1h ago", "Jan 2").
+func formatRelativeTime(t time.Time) string {
+	since := time.Since(t)
+	switch {
+	case since < time.Minute:
+		return "now"
+	case since < time.Hour:
+		return fmt.Sprintf("%dm", int(since.Minutes()))
+	case since < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(since.Hours()))
+	case since < 7*24*time.Hour:
+		return fmt.Sprintf("%dd", int(since.Hours()/24))
+	default:
+		return t.Format("Jan 2")
+	}
+}
+
+// auditTypeIcon returns an icon for audit entry type.
+func auditTypeIcon(entryType string) string {
+	switch entryType {
+	case "commit":
+		return "◆" // diamond for commits
+	case "sling":
+		return "→" // arrow for work assignment
+	case "session_start":
+		return "▶" // play for session start
+	case "done":
+		return "✓" // check for completion
+	case "kill":
+		return "■" // stop for kill
+	case "spawn":
+		return "+" // plus for spawn
+	case "handoff":
+		return "⤳" // handoff arrow
+	default:
+		return "·" // dot for unknown
+	}
 }
 
 func renderRigDetails(r rigItem, width int) string {

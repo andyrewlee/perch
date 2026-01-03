@@ -231,3 +231,13 @@ func (o *OperationalState) Summary() string {
 	}
 	return "HEALTHY"
 }
+
+// AuditEntry represents a timeline event from gt audit.
+// Loaded via: gt audit --actor=<addr> --json
+type AuditEntry struct {
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"`  // events, townlog, git, beads
+	Type      string    `json:"type"`    // sling, session_start, done, kill, commit, etc.
+	Actor     string    `json:"actor"`
+	Summary   string    `json:"summary"`
+}

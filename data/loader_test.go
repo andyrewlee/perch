@@ -101,6 +101,42 @@ func TestLoaderIntegration(t *testing.T) {
 		t.Logf("Polecats: %d, Convoys: %d, Issues: %d",
 			len(snap.Polecats), len(snap.Convoys), len(snap.Issues))
 	})
+
+	t.Run("LoadAuditTimeline", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		// Load without actor filter
+		entries, err := loader.LoadAuditTimeline(ctx, "", 10)
+		if err != nil {
+			t.Fatalf("LoadAuditTimeline: %v", err)
+		}
+		t.Logf("Found %d audit entries (no filter)", len(entries))
+		for i, e := range entries {
+			if i >= 5 {
+				break
+			}
+			t.Logf("  %s [%s/%s] %s: %s", e.Timestamp.Format("15:04:05"), e.Source, e.Type, e.Actor, e.Summary)
+		}
+	})
+
+	t.Run("LoadAuditTimelineWithActor", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		// Load with actor filter
+		entries, err := loader.LoadAuditTimeline(ctx, "mayor", 10)
+		if err != nil {
+			t.Fatalf("LoadAuditTimeline with actor: %v", err)
+		}
+		t.Logf("Found %d audit entries for 'mayor'", len(entries))
+		for i, e := range entries {
+			if i >= 5 {
+				break
+			}
+			t.Logf("  %s [%s/%s] %s", e.Timestamp.Format("15:04:05"), e.Source, e.Type, e.Summary)
+		}
+	})
 }
 
 func TestEnrichWithHookedBeads(t *testing.T) {

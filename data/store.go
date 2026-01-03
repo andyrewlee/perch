@@ -212,3 +212,8 @@ func (s *Store) Errors() []error {
 	}
 	return snap.Errors
 }
+
+// Loader returns the underlying data loader for direct queries.
+func (s *Store) Loader() *Loader {
+	return s.loader
+}
