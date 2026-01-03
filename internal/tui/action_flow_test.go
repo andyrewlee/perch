@@ -585,6 +585,11 @@ func TestActionNameComplete(t *testing.T) {
 		{ActionMarkMailUnread, "Mark unread"},
 		{ActionAckMail, "Acknowledge"},
 		{ActionReplyMail, "Reply"},
+		{ActionSlingWork, "Sling work"},
+		{ActionHandoff, "Handoff"},
+		{ActionStopAgent, "Stop agent"},
+		{ActionNudgeAgent, "Nudge"},
+		{ActionMailAgent, "Mail"},
 	}
 
 	for _, tt := range tests {

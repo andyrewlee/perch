@@ -31,6 +31,11 @@ const (
 	ActionReplyMail      // Quick reply to a mail message
 	ActionRemoveWorktree
 	ActionCreateWork     // Create issue and optionally sling to polecat
+	ActionSlingWork
+	ActionHandoff
+	ActionStopAgent
+	ActionNudgeAgent
+	ActionMailAgent
 )
 
 // Action represents a user-triggered action with its result.
@@ -229,6 +234,36 @@ func (r *ActionRunner) CreateWork(ctx context.Context, title, issueType string, 
 	return nil
 }
 
+// SlingWork assigns work to an agent.
+// Runs: gt sling <bead> <agent-address>
+func (r *ActionRunner) SlingWork(ctx context.Context, bead, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "sling", bead, agentAddress)
+}
+
+// Handoff hands off work to a fresh session.
+// Runs: gt handoff for the specified agent
+func (r *ActionRunner) Handoff(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "handoff", "--target", agentAddress)
+}
+
+// StopAgent stops/nukes a polecat agent.
+// Runs: gt polecat nuke <agent-address>
+func (r *ActionRunner) StopAgent(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "polecat", "nuke", agentAddress)
+}
+
+// NudgeAgent sends a nudge message to an agent.
+// Runs: gt nudge <agent-address> <message>
+func (r *ActionRunner) NudgeAgent(ctx context.Context, agentAddress, message string) error {
+	return r.runCommand(ctx, "gt", "nudge", agentAddress, "-m", message)
+}
+
+// MailAgent opens mail composition for an agent.
+// Runs: gt mail send <agent-address> -s "<subject>" -m "<message>"
+func (r *ActionRunner) MailAgent(ctx context.Context, agentAddress, subject, message string) error {
+	return r.runCommand(ctx, "gt", "mail", "send", agentAddress, "-s", subject, "-m", message)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -266,18 +301,30 @@ func (m StatusMessage) IsExpired() bool {
 
 // ConfirmDialog represents a confirmation dialog for destructive actions.
 type ConfirmDialog struct {
-	Title   string
-	Message string
-	Action  ActionType
-	Target  string
+	Title     string
+	Message   string
+	Action    ActionType
+	Target    string
 	OnConfirm func()
+}
+
+// InputDialog represents a dialog for text input (sling, nudge, mail).
+type InputDialog struct {
+	Title       string
+	Prompt      string
+	Action      ActionType
+	Target      string
+	Input       string      // Current text input
+	ExtraInput  string      // Second input field (e.g., message body for mail)
+	ExtraPrompt string      // Prompt for second field
+	Field       int         // 0 = first field, 1 = second field
 }
 
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
 	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery,
-		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree:
+		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree, ActionStopAgent:
 		return true
 	default:
 		return false
