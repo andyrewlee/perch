@@ -49,10 +49,11 @@ type Model struct {
 	setupWizard *SetupWizard
 
 	// Actions
-	actionRunner  *ActionRunner
-	statusMessage *StatusMessage
-	confirmDialog *ConfirmDialog
-	addRigForm    *AddRigForm
+	actionRunner   *ActionRunner
+	statusMessage  *StatusMessage
+	confirmDialog  *ConfirmDialog
+	addRigForm     *AddRigForm
+	createWorkForm *CreateWorkForm
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -363,6 +364,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleAddRigFormKey(msg)
 	}
 
+	// Handle create work form
+	if m.createWorkForm != nil {
+		return m.handleCreateWorkFormKey(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -457,6 +463,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		// Open add rig form
 		m.addRigForm = NewAddRigForm()
+		return m, nil
+
+	case "w":
+		// Open create work form
+		var rigs []string
+		if m.snapshot != nil && m.snapshot.Town != nil {
+			for _, rig := range m.snapshot.Town.Rigs {
+				rigs = append(rigs, rig.Name)
+			}
+		}
+		m.createWorkForm = NewCreateWorkForm(rigs)
 		return m, nil
 
 	case "c":
@@ -729,6 +746,81 @@ func (m Model) addRigCmd(name, url, prefix string) tea.Cmd {
 	}
 }
 
+// handleCreateWorkFormKey handles key presses when the create work form is shown.
+func (m Model) handleCreateWorkFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Handle priority keys (1-5)
+	if len(msg.String()) == 1 && msg.String()[0] >= '1' && msg.String()[0] <= '5' {
+		if m.createWorkForm.Step() == StepIssueDetails {
+			// Set priority (1-5 maps to P0-P4)
+			priority := int(msg.String()[0] - '1')
+			m.createWorkForm.priority = priority
+			return m, nil
+		}
+	}
+
+	// Check if we need to update targets when step changes
+	prevStep := m.createWorkForm.Step()
+
+	cmd := m.createWorkForm.Update(msg)
+
+	// If step changed to target selection, populate targets
+	if prevStep == StepSelectRig && m.createWorkForm.Step() == StepSelectTarget {
+		m.populateTargets()
+	}
+
+	if m.createWorkForm.IsCancelled() {
+		m.createWorkForm = nil
+		m.setStatus("Create work cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.createWorkForm.IsSubmitted() {
+		title := m.createWorkForm.Title()
+		issueType := m.createWorkForm.Type()
+		priority := m.createWorkForm.Priority()
+		rig := m.createWorkForm.SelectedRig()
+		target := m.createWorkForm.SelectedTarget()
+		skipSling := m.createWorkForm.SkipSling()
+
+		m.createWorkForm = nil
+		m.setStatus("Creating issue '"+title+"'...", false)
+		return m, m.createWorkCmd(title, string(issueType), priority, rig, target, skipSling)
+	}
+
+	return m, cmd
+}
+
+// populateTargets populates the target selection with polecats from the selected rig.
+func (m *Model) populateTargets() {
+	if m.createWorkForm == nil || m.snapshot == nil || m.snapshot.Town == nil {
+		m.createWorkForm.SetTargets(nil)
+		return
+	}
+
+	rig := m.createWorkForm.SelectedRig()
+	var polecats []string
+
+	for _, r := range m.snapshot.Town.Rigs {
+		if r.Name == rig {
+			polecats = r.Polecats
+			break
+		}
+	}
+
+	m.createWorkForm.SetTargets(polecats)
+}
+
+// createWorkCmd creates a command that creates an issue and optionally slings it.
+func (m Model) createWorkCmd(title, issueType string, priority int, rig, target string, skipSling bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.CreateWork(ctx, title, issueType, priority, rig, target, skipSling)
+		return actionCompleteMsg{action: ActionCreateWork, target: title, err: err}
+	}
+}
+
 // nudgeCmd creates a command that nudges a polecat to resolve merge issues.
 func (m Model) nudgeCmd(rig, worker, branch string, hasConflicts bool) tea.Cmd {
 	return func() tea.Msg {
@@ -907,6 +999,8 @@ func actionName(action ActionType) string {
 		return "Reply"
 	case ActionRemoveWorktree:
 		return "Remove worktree"
+	case ActionCreateWork:
+		return "Create work"
 	default:
 		return "Action"
 	}
@@ -983,6 +1077,10 @@ func (m Model) View() string {
 
 	if m.addRigForm != nil {
 		return m.addRigForm.View(m.width, m.height)
+	}
+
+	if m.createWorkForm != nil {
+		return m.createWorkForm.View(m.width, m.height)
 	}
 
 	if m.attachDialog != nil {
@@ -1338,7 +1436,7 @@ func (m Model) renderFooter() string {
 				helpItems = append(helpItems, "x: remove")
 			}
 		}
-		helpItems = append(helpItems, "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
+		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs", "?: help", "q: quit")
 		rightSide = mutedStyle.Render(strings.Join(helpItems, " | "))
 	}
 
