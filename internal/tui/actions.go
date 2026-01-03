@@ -23,6 +23,8 @@ const (
 	ActionNudgePolecat
 	ActionNudgeRefinery
 	ActionRestartRefinery
+	ActionStopPolecat    // Stop a single idle polecat
+	ActionStopAllIdle    // Stop all idle polecats in a rig
 )
 
 // Action represents a user-triggered action with its result.
@@ -137,6 +139,20 @@ func (r *ActionRunner) RestartRefinery(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "agent", "restart", rig+"/refinery")
 }
 
+// StopPolecat stops a single polecat.
+// Runs: gt polecat stop <agent-address>
+// Note: Only idle polecats should be stopped - caller must verify.
+func (r *ActionRunner) StopPolecat(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "polecat", "stop", agentAddress)
+}
+
+// StopAllIdlePolecats stops all idle polecats in a rig.
+// Runs: gt polecat stop --idle <rig>
+// This is a convenience action that only stops polecats without active work.
+func (r *ActionRunner) StopAllIdlePolecats(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "polecat", "stop", "--idle", rig)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -184,7 +200,8 @@ type ConfirmDialog struct {
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
-	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery:
+	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery,
+		ActionStopPolecat, ActionStopAllIdle:
 		return true
 	default:
 		return false
