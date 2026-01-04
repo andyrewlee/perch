@@ -237,11 +237,23 @@ type OperationalState struct {
 	// DegradedMode indicates tmux is unavailable (GT_DEGRADED env var set)
 	DegradedMode bool `json:"degraded_mode"`
 
+	// DegradedReason explains why degraded mode is active
+	DegradedReason string `json:"degraded_reason,omitempty"`
+
+	// DegradedAction is the recommended action to resolve degraded mode
+	DegradedAction string `json:"degraded_action,omitempty"`
+
 	// PatrolMuted indicates the deacon patrol is muted
 	PatrolMuted bool `json:"patrol_muted"`
 
 	// WatchdogHealthy indicates the deacon watchdog is running and healthy
 	WatchdogHealthy bool `json:"watchdog_healthy"`
+
+	// WatchdogReason explains why the watchdog is unhealthy
+	WatchdogReason string `json:"watchdog_reason,omitempty"`
+
+	// WatchdogAction is the recommended action to restore watchdog
+	WatchdogAction string `json:"watchdog_action,omitempty"`
 
 	// LastDeaconHeartbeat is when the deacon last checked in
 	LastDeaconHeartbeat time.Time `json:"last_deacon_heartbeat,omitempty"`
