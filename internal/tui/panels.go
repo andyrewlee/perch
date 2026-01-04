@@ -13,7 +13,8 @@ import (
 type SidebarSection int
 
 const (
-	SectionRigs SidebarSection = iota
+	SectionIdentity SidebarSection = iota // Who am I, recent activity
+	SectionRigs
 	SectionConvoys
 	SectionMergeQueue
 	SectionAgents
@@ -24,10 +25,12 @@ const (
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 8
+const SectionCount = 9
 
 func (s SidebarSection) String() string {
 	switch s {
+	case SectionIdentity:
+		return "Identity"
 	case SectionRigs:
 		return "Rigs"
 	case SectionConvoys:
@@ -329,6 +332,17 @@ func (p pluginItem) Status() string {
 	return "enabled"
 }
 
+// identityItem represents a line in the identity section
+type identityItem struct {
+	id    string
+	label string
+	kind  string // "actor", "commit", "bead"
+}
+
+func (i identityItem) ID() string     { return i.id }
+func (i identityItem) Label() string  { return i.label }
+func (i identityItem) Status() string { return i.kind }
+
 // SidebarState manages sidebar list selection
 type SidebarState struct {
 	Section   SidebarSection
@@ -338,6 +352,7 @@ type SidebarState struct {
 	ShowConvoyHistory bool
 
 	// Cached items for each section
+	Identity        []identityItem
 	Rigs            []rigItem
 	Convoys         []convoyItem // Active convoys
 	ClosedConvoys   []convoyItem // Landed convoys (history)
@@ -371,12 +386,59 @@ type SidebarState struct {
 // NewSidebarState creates a new sidebar state
 func NewSidebarState() *SidebarState {
 	return &SidebarState{
-		Section:        SectionRigs,
+		Section:        SectionIdentity,
 		Selection:      0,
 		AgentsLoading:  true, // Start in loading state until first successful refresh
 		ConvoysLoading: true, // Start in loading state until first successful refresh
 		MQsLoading:     true, // Start in loading state until first successful refresh
 	}
+}
+
+// buildIdentityItems creates display items for the identity section
+func buildIdentityItems(id *data.Identity) []identityItem {
+	if id == nil {
+		return []identityItem{{id: "none", label: "(no identity)", kind: "actor"}}
+	}
+
+	var items []identityItem
+
+	// Actor line
+	actorLabel := id.Name
+	if actorLabel == "" {
+		actorLabel = id.Username
+	}
+	if actorLabel == "" {
+		actorLabel = "(unknown)"
+	}
+	items = append(items, identityItem{id: "actor", label: actorLabel, kind: "actor"})
+
+	// Recent commits (show first 3)
+	for i, c := range id.LastCommits {
+		if i >= 3 {
+			break
+		}
+		label := fmt.Sprintf("%s %s", c.Hash, truncateStr(c.Subject, 25))
+		items = append(items, identityItem{id: c.Hash, label: label, kind: "commit"})
+	}
+
+	// Recent beads (show first 3)
+	for i, b := range id.LastBeads {
+		if i >= 3 {
+			break
+		}
+		label := truncateStr(b.Title, 30)
+		items = append(items, identityItem{id: b.ID, label: label, kind: "bead"})
+	}
+
+	return items
+}
+
+// truncateStr shortens a string to maxLen, adding ellipsis if needed
+func truncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-1] + "..."
 }
 
 // ToggleConvoyHistory toggles between active and history convoy view.
@@ -399,6 +461,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	if snap == nil {
 		return
 	}
+
+	// Update identity items
+	s.Identity = buildIdentityItems(snap.Identity)
 
 	// Build MR count per rig first (needed for rig items)
 	mrCounts := make(map[string]int)
@@ -556,6 +621,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 // CurrentItems returns the items for the current section
 func (s *SidebarState) CurrentItems() []SelectableItem {
 	switch s.Section {
+	case SectionIdentity:
+		items := make([]SelectableItem, len(s.Identity))
+		for i, id := range s.Identity {
+			items[i] = id
+		}
+		return items
 	case SectionRigs:
 		items := make([]SelectableItem, len(s.Rigs))
 		for i, r := range s.Rigs {
@@ -690,7 +761,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionRigs; sec <= SectionPlugins; sec++ {
+	for sec := SectionIdentity; sec <= SectionPlugins; sec++ {
 		isActive := state.Section == sec
 		headerText := sec.String()
 		// For convoys, show active/history toggle state
@@ -774,6 +845,12 @@ func renderSectionHeader(name string, section SidebarSection, active bool, state
 
 func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 	switch sec {
+	case SectionIdentity:
+		items := make([]SelectableItem, len(state.Identity))
+		for i, id := range state.Identity {
+			items[i] = id
+		}
+		return items
 	case SectionRigs:
 		items := make([]SelectableItem, len(state.Rigs))
 		for i, r := range state.Rigs {
@@ -1135,6 +1212,8 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 	}
 
 	switch state.Section {
+	case SectionIdentity:
+		return renderIdentityDetails(snap.Identity, snap.Mail, width)
 	case SectionRigs:
 		if state.Selection >= 0 && state.Selection < len(state.Rigs) {
 			return renderRigDetails(state.Rigs[state.Selection], width)
@@ -1747,4 +1826,111 @@ func renderPluginDetails(p data.Plugin, width int) string {
 	lines = append(lines, mutedStyle.Render("Actions: e=toggle enabled"))
 
 	return strings.Join(lines, "\n")
+}
+
+func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, width int) string {
+	var lines []string
+	lines = append(lines, headerStyle.Render("Identity & Provenance"))
+	lines = append(lines, mutedStyle.Render("Who you are and what you've touched"))
+	lines = append(lines, "")
+
+	if id == nil {
+		lines = append(lines, mutedStyle.Render("No identity data available"))
+		return strings.Join(lines, "\n")
+	}
+
+	// Actor info
+	lines = append(lines, headerStyle.Render("Actor"))
+	if id.Name != "" {
+		lines = append(lines, fmt.Sprintf("Name:     %s", id.Name))
+	}
+	if id.Username != "" {
+		lines = append(lines, fmt.Sprintf("Username: %s", id.Username))
+	}
+	if id.Email != "" {
+		lines = append(lines, fmt.Sprintf("Email:    %s", id.Email))
+	}
+	if id.Source != "" {
+		lines = append(lines, fmt.Sprintf("Source:   %s", mutedStyle.Render(id.Source)))
+	}
+
+	// Rig/Role context (if available)
+	if id.CurrentRig != "" || id.CurrentRole != "" {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Context"))
+		if id.CurrentRig != "" {
+			lines = append(lines, fmt.Sprintf("Rig:      %s", id.CurrentRig))
+		}
+		if id.CurrentRole != "" {
+			lines = append(lines, fmt.Sprintf("Role:     %s", id.CurrentRole))
+		}
+	}
+
+	// Recent commits
+	if len(id.LastCommits) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Recent Commits"))
+		for i, c := range id.LastCommits {
+			if i >= 5 {
+				break
+			}
+			subject := truncateStr(c.Subject, width-15)
+			lines = append(lines, fmt.Sprintf("%s %s", mutedStyle.Render(c.Hash), subject))
+		}
+	}
+
+	// Recent beads
+	if len(id.LastBeads) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Recent Beads"))
+		for i, b := range id.LastBeads {
+			if i >= 5 {
+				break
+			}
+			statusBadge := beadStatusBadge(b.Status)
+			title := truncateStr(b.Title, width-15)
+			lines = append(lines, fmt.Sprintf("%s %s %s", statusBadge, mutedStyle.Render(b.ID), title))
+		}
+	}
+
+	// Mail preview (unread)
+	unreadCount := 0
+	for _, m := range mail {
+		if !m.Read {
+			unreadCount++
+		}
+	}
+	if unreadCount > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render(fmt.Sprintf("Unread Mail (%d)", unreadCount)))
+		shown := 0
+		for _, m := range mail {
+			if !m.Read && shown < 3 {
+				subject := truncateStr(m.Subject, width-10)
+				from := truncateStr(m.From, 15)
+				lines = append(lines, fmt.Sprintf("%s %s", mailUnreadStyle.Render("*"), subject))
+				lines = append(lines, mutedStyle.Render(fmt.Sprintf("  from %s", from)))
+				shown++
+			}
+		}
+		if unreadCount > 3 {
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  ...and %d more", unreadCount-3)))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// beadStatusBadge returns a colored badge for bead status
+func beadStatusBadge(status string) string {
+	switch status {
+	case "open":
+		return idleStyle.Render("○")
+	case "in_progress", "hooked":
+		return workingStyle.Render("●")
+	case "closed":
+		return stoppedStyle.Render("✓")
+	default:
+		return mutedStyle.Render("?")
+	}
 }
