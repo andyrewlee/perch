@@ -6,6 +6,8 @@ package tui
 // SectionHelp returns a brief description for a sidebar section.
 func SectionHelp(section SidebarSection) string {
 	switch section {
+	case SectionIdentity:
+		return "Who you are"
 	case SectionRigs:
 		return "Project workspaces"
 	case SectionConvoys:
@@ -14,6 +16,12 @@ func SectionHelp(section SidebarSection) string {
 		return "Pending merges"
 	case SectionAgents:
 		return "All workers"
+	case SectionMail:
+		return "Messages"
+	case SectionLifecycle:
+		return "Agent events"
+	case SectionWorktrees:
+		return "Cross-rig clones"
 	default:
 		return ""
 	}

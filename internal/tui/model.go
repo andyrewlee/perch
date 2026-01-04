@@ -755,6 +755,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "0":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionIdentity
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
 	case "1":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionRigs
@@ -1978,7 +1985,7 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "1-7: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "0-7: jump")
 			if m.sidebar.Section == SectionRigs {
 				helpItems = append(helpItems, "e: edit settings")
 			}
@@ -2154,7 +2161,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
-		helpKeyStyle.Render("1-8") + "        Jump to section (1=Rigs...8=Plugins)",
+		helpKeyStyle.Render("0-8") + "        Jump to section (0=Identity, 1=Rigs...8=Plugins)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",

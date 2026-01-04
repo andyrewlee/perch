@@ -399,6 +399,98 @@ func parseDoctorOutput(output string) (*DoctorReport, error) {
 	return report, nil
 }
 
+// LoadIdentity loads the current actor's identity and provenance data.
+// Combines whoami info with recent git commits and bead activity.
+func (l *Loader) LoadIdentity(ctx context.Context, overseer *Overseer, issues []Issue) *Identity {
+	identity := &Identity{}
+
+	// Copy overseer info if available
+	if overseer != nil {
+		identity.Name = overseer.Name
+		identity.Email = overseer.Email
+		identity.Username = overseer.Username
+		identity.Source = overseer.Source
+	}
+
+	// Load recent commits (last 5)
+	commits := l.loadRecentCommits(ctx, 5)
+	if len(commits) > 0 {
+		identity.LastCommits = commits
+	}
+
+	// Extract recent beads from issues (sorted by UpdatedAt)
+	beads := extractRecentBeads(issues, 5)
+	if len(beads) > 0 {
+		identity.LastBeads = beads
+	}
+
+	return identity
+}
+
+// loadRecentCommits loads the most recent git commits.
+func (l *Loader) loadRecentCommits(ctx context.Context, limit int) []CommitInfo {
+	// Use git log with JSON-like format
+	format := `{"hash":"%h","subject":"%s","author":"%an","date":"%aI"}`
+	stdout, _, err := l.Runner.Exec(ctx, l.TownRoot,
+		"git", "log", fmt.Sprintf("-n%d", limit), fmt.Sprintf("--pretty=format:%s,", format))
+	if err != nil {
+		return nil
+	}
+
+	// Parse the output (comma-separated JSON objects)
+	output := bytes.TrimSpace(stdout)
+	if len(output) == 0 {
+		return nil
+	}
+
+	// Wrap in array and parse
+	output = bytes.TrimSuffix(output, []byte(","))
+	jsonArray := append([]byte("["), output...)
+	jsonArray = append(jsonArray, ']')
+
+	var commits []CommitInfo
+	if err := json.Unmarshal(jsonArray, &commits); err != nil {
+		return nil
+	}
+
+	return commits
+}
+
+// extractRecentBeads extracts the most recently updated beads from issues.
+func extractRecentBeads(issues []Issue, limit int) []BeadInfo {
+	if len(issues) == 0 {
+		return nil
+	}
+
+	// Sort by UpdatedAt descending (make a copy to avoid mutating original)
+	sorted := make([]Issue, len(issues))
+	copy(sorted, issues)
+	for i := 0; i < len(sorted)-1; i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].UpdatedAt.After(sorted[i].UpdatedAt) {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+
+	// Take top N
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+
+	beads := make([]BeadInfo, len(sorted))
+	for i, issue := range sorted {
+		beads[i] = BeadInfo{
+			ID:        issue.ID,
+			Title:     issue.Title,
+			Status:    issue.Status,
+			UpdatedAt: issue.UpdatedAt,
+		}
+	}
+
+	return beads
+}
+
 // LoadOperationalState loads the operational state of the town.
 // This checks environment variables, deacon status, and agent health.
 func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *OperationalState {
@@ -738,6 +830,7 @@ type Snapshot struct {
 	HookedLoaded     bool    // True if HookedIssues loaded successfully (false on error)
 	Mail             []MailMessage
 	Plugins          []Plugin
+	Identity         *Identity
 	Lifecycle        *LifecycleLog
 	OperationalState *OperationalState
 	DoctorReport     *DoctorReport
@@ -911,6 +1004,13 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Plugins = plugins
 		}
 	}
+
+	// Load identity (requires town status and issues)
+	var overseer *Overseer
+	if snap.Town != nil {
+		overseer = &snap.Town.Overseer
+	}
+	snap.Identity = l.LoadIdentity(ctx, overseer, snap.Issues)
 
 	// Enrich town status with bead-based hook data
 	snap.EnrichWithHookedBeads()

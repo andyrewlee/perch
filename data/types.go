@@ -429,3 +429,39 @@ type Plugin struct {
 	LastError   string    `json:"last_error"`  // Last error message if any
 	HasError    bool      `json:"has_error"`   // Whether plugin has errors
 }
+
+// Identity represents the current actor's identity and provenance.
+// Combines whoami info with recent activity.
+type Identity struct {
+	// Actor info (from whoami/overseer)
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Username string `json:"username"`
+	Source   string `json:"source"` // git, env, etc.
+
+	// Rig/role context
+	CurrentRig  string `json:"current_rig,omitempty"`
+	CurrentRole string `json:"current_role,omitempty"` // mayor, witness, polecat, crew
+
+	// Recent activity (provenance)
+	LastCommits []CommitInfo `json:"last_commits,omitempty"`
+	LastBeads   []BeadInfo   `json:"last_beads,omitempty"`
+}
+
+// CommitInfo represents a recent commit.
+type CommitInfo struct {
+	Hash    string    `json:"hash"`
+	Subject string    `json:"subject"`
+	Author  string    `json:"author"`
+	Date    time.Time `json:"date"`
+	Rig     string    `json:"rig,omitempty"`
+}
+
+// BeadInfo represents a recently touched bead.
+type BeadInfo struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Status    string    `json:"status"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Action    string    `json:"action,omitempty"` // created, updated, closed
+}
