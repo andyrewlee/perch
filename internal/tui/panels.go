@@ -356,14 +356,20 @@ type SidebarState struct {
 	AgentsLastRefresh time.Time // Last successful agent data refresh
 	AgentsLoadError   error     // Error from last agent load attempt (nil if successful)
 	AgentsLoading     bool      // True during initial load
+
+	// Loading/error state for convoys panel
+	ConvoysLastRefresh time.Time // Last successful convoy data refresh
+	ConvoysLoadError   error     // Error from last convoy load attempt (nil if successful)
+	ConvoysLoading     bool      // True during initial load
 }
 
 // NewSidebarState creates a new sidebar state
 func NewSidebarState() *SidebarState {
 	return &SidebarState{
-		Section:       SectionRigs,
-		Selection:     0,
-		AgentsLoading: true, // Start in loading state until first successful refresh
+		Section:        SectionRigs,
+		Selection:      0,
+		AgentsLoading:  true, // Start in loading state until first successful refresh
+		ConvoysLoading: true, // Start in loading state until first successful refresh
 	}
 }
 
@@ -402,17 +408,36 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 	}
 
-	// Update active convoys
-	s.Convoys = make([]convoyItem, len(snap.Convoys))
-	for i, c := range snap.Convoys {
-		s.Convoys[i] = convoyItem{c}
+	// Update convoys with loading/error tracking
+	// Check if convoy data was successfully loaded (nil means error occurred)
+	if snap.Convoys != nil {
+		s.Convoys = make([]convoyItem, len(snap.Convoys))
+		for i, c := range snap.Convoys {
+			s.Convoys[i] = convoyItem{c}
+		}
+		s.ConvoysLastRefresh = snap.LoadedAt
+		s.ConvoysLoadError = nil
+		s.ConvoysLoading = false
+	} else {
+		// Convoys failed to load - find the convoy-specific error if any
+		s.ConvoysLoading = false
+		for _, err := range snap.Errors {
+			if err != nil && strings.Contains(err.Error(), "convoy") {
+				s.ConvoysLoadError = err
+				break
+			}
+		}
+		// Preserve s.Convoys (last-known value) - don't clear it
 	}
 
-	// Update closed/landed convoys
-	s.ClosedConvoys = make([]convoyItem, len(snap.ClosedConvoys))
-	for i, c := range snap.ClosedConvoys {
-		s.ClosedConvoys[i] = convoyItem{c}
+	// Update closed/landed convoys (same pattern)
+	if snap.ClosedConvoys != nil {
+		s.ClosedConvoys = make([]convoyItem, len(snap.ClosedConvoys))
+		for i, c := range snap.ClosedConvoys {
+			s.ClosedConvoys[i] = convoyItem{c}
+		}
 	}
+	// Note: we use the same error state for both - if active convoys fail, closed likely did too
 
 	// Update merge requests (flatten all rigs)
 	s.MRs = nil
@@ -640,6 +665,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionAgents {
 			// Special handling for agents section with loading/error states
 			list = renderAgentsList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionConvoys {
+			// Special handling for convoys section with loading/error states
+			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -867,6 +895,72 @@ func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSecti
 	}
 
 	// Render agent items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderConvoysList renders the convoys list with loading/error state indicators.
+// Per acceptance criteria: always show last-known convoys; if loading, show explicit
+// loading state; if error, show error + last refresh time.
+func renderConvoysList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	var lines []string
+
+	// Show loading indicator during initial load
+	if state.ConvoysLoading {
+		lines = append(lines, mutedStyle.Render("  Loading convoys..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if convoys failed to load (but still show last-known)
+	if state.ConvoysLoadError != nil {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.ConvoysLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (last: " + state.ConvoysLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+	}
+
+	// Show last-known convoys (or empty state if none)
+	if len(items) == 0 {
+		if state.ConvoysLoadError != nil {
+			lines = append(lines, mutedStyle.Render("  (no cached convoys)"))
+		} else {
+			// Normal empty state - no active convoys
+			viewType := "active"
+			if state.ShowConvoyHistory {
+				viewType = "landed"
+			}
+			lines = append(lines, mutedStyle.Render("  (no "+viewType+" convoys)"))
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Press H to toggle history"))
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Calculate remaining lines for convoy list
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render convoy items
 	for i, item := range items {
 		if len(lines) >= maxLines {
 			break
