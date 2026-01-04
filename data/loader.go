@@ -835,28 +835,52 @@ type Snapshot struct {
 	OperationalState *OperationalState
 	DoctorReport     *DoctorReport
 	LoadedAt         time.Time
-	Errors           []error
+	Errors           []error // Deprecated: use LoadErrors for structured error info
+	LoadErrors       []LoadError          // Structured errors with source context
+	LastSuccess      map[string]time.Time // Per-source last successful load time
 }
 
 // LoadAll loads all data sources into a snapshot.
 // Errors for individual sources are collected but don't stop other loads.
 func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
+	now := time.Now()
 	snap := &Snapshot{
-		LoadedAt:    time.Now(),
+		LoadedAt:    now,
 		MergeQueues: make(map[string][]MergeRequest),
+		LastSuccess: make(map[string]time.Time),
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Helper to add a structured error
+	addError := func(source, command string, err error) {
+		loadErr := LoadError{
+			Source:     source,
+			Command:    command,
+			Error:      err.Error(),
+			OccurredAt: now,
+		}
+		mu.Lock()
+		snap.LoadErrors = append(snap.LoadErrors, loadErr)
+		snap.Errors = append(snap.Errors, err) // Keep for backwards compat
+		mu.Unlock()
+	}
+
+	// Helper to mark success
+	markSuccess := func(source string) {
+		mu.Lock()
+		snap.LastSuccess[source] = now
+		mu.Unlock()
+	}
+
 	// Load town status first (we need rig names for MQ)
 	town, err := l.LoadTownStatus(ctx)
 	if err != nil {
-		mu.Lock()
-		snap.Errors = append(snap.Errors, err)
-		mu.Unlock()
+		addError("town_status", "gt status --json --fast", err)
 	} else {
 		snap.Town = town
+		markSuccess("town_status")
 	}
 
 	// Parallel loads (polecats, convoys, closedConvoys, issues, mail, hookedIssues, lifecycle, doctor)
@@ -865,60 +889,65 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 	go func() {
 		defer wg.Done()
 		polecats, err := l.LoadPolecats(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("polecats", "gt polecat list --all --json", err)
 		} else {
+			mu.Lock()
 			snap.Polecats = polecats
+			mu.Unlock()
+			markSuccess("polecats")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		convoys, err := l.LoadConvoysWithDetails(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("convoys", "gt convoy list --json", err)
 		} else {
+			mu.Lock()
 			snap.Convoys = convoys
+			mu.Unlock()
+			markSuccess("convoys")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		closedConvoys, err := l.LoadClosedConvoys(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("closed_convoys", "gt convoy list --status=closed --json", err)
 		} else {
+			mu.Lock()
 			snap.ClosedConvoys = closedConvoys
+			mu.Unlock()
+			markSuccess("closed_convoys")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		issues, err := l.LoadIssues(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("issues", "bd list --json --limit 0", err)
 		} else {
+			mu.Lock()
 			snap.Issues = issues
+			mu.Unlock()
+			markSuccess("issues")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		mail, err := l.LoadMail(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("mail", "gt mail inbox --json", err)
 		} else {
+			mu.Lock()
 			snap.Mail = mail
+			mu.Unlock()
+			markSuccess("mail")
 		}
 	}()
 
@@ -926,37 +955,40 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 		defer wg.Done()
 		// Load both hooked and in_progress issues as active work
 		hooked, err := l.LoadHookedIssues(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("hooked_issues", "bd list --json --status hooked --limit 0", err)
 		} else {
+			mu.Lock()
 			snap.HookedIssues = hooked
 			snap.HookedLoaded = true
+			mu.Unlock()
+			markSuccess("hooked_issues")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		lifecycle, err := l.LoadLifecycleLog(ctx, 100) // Load last 100 events
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("lifecycle", "$GT_ROOT/logs/town.log", err)
 		} else {
+			mu.Lock()
 			snap.Lifecycle = lifecycle
+			mu.Unlock()
+			markSuccess("lifecycle")
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		doctor, err := l.LoadDoctorReport(ctx)
-		mu.Lock()
-		defer mu.Unlock()
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("doctor", "gt doctor", err)
 		} else {
+			mu.Lock()
 			snap.DoctorReport = doctor
+			mu.Unlock()
+			markSuccess("doctor")
 		}
 	}()
 
@@ -982,18 +1014,22 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			rigNames[i] = rig.Name
 			mrs, err := l.LoadMergeQueue(ctx, rig.Name)
 			if err != nil {
-				snap.Errors = append(snap.Errors, err)
+				addError("merge_queue", fmt.Sprintf("gt mq list %s --json", rig.Name), err)
 			} else {
+				mu.Lock()
 				snap.MergeQueues[rig.Name] = mrs
+				mu.Unlock()
+				markSuccess("merge_queue_" + rig.Name)
 			}
 		}
 
 		// Load worktrees (requires rig names)
 		worktrees, err := l.LoadWorktrees(ctx, rigNames)
 		if err != nil {
-			snap.Errors = append(snap.Errors, err)
+			addError("worktrees", "filesystem scan of crew directories", err)
 		} else {
 			snap.Worktrees = worktrees
+			markSuccess("worktrees")
 		}
 
 		// Load plugins (requires rig names)
