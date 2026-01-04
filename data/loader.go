@@ -735,6 +735,7 @@ type Snapshot struct {
 	MergeQueues      map[string][]MergeRequest
 	Issues           []Issue
 	HookedIssues     []Issue // Issues with hooked or in_progress status (active work)
+	HookedLoaded     bool    // True if HookedIssues loaded successfully (false on error)
 	Mail             []MailMessage
 	Plugins          []Plugin
 	Lifecycle        *LifecycleLog
@@ -838,6 +839,7 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Errors = append(snap.Errors, err)
 		} else {
 			snap.HookedIssues = hooked
+			snap.HookedLoaded = true
 		}
 	}()
 
@@ -961,7 +963,18 @@ func (s *Snapshot) UnreadMail() []MailMessage {
 // - Agent.HasWork, Agent.FirstSubject, and hook details based on bead assignees
 // - Rig.Hooks to reflect which agents have hooked work
 func (s *Snapshot) EnrichWithHookedBeads() {
-	if s.Town == nil || len(s.HookedIssues) == 0 {
+	if s.Town == nil {
+		return
+	}
+
+	// Always update ActiveHooks when hooked issues loaded successfully
+	// This ensures the count matches reality even when 0
+	if s.HookedLoaded {
+		s.Town.Summary.ActiveHooks = len(s.HookedIssues)
+	}
+	// If HookedLoaded is false (load failed), keep the existing value from gt status
+
+	if len(s.HookedIssues) == 0 {
 		return
 	}
 
@@ -974,9 +987,6 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 			hookedByAssignee[issue.Assignee] = issue
 		}
 	}
-
-	// Update Summary.ActiveHooks
-	s.Town.Summary.ActiveHooks = len(s.HookedIssues)
 
 	// Update agents at the town level
 	for i := range s.Town.Agents {
