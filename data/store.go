@@ -31,6 +31,14 @@ func NewStore(townRoot string) *Store {
 	}
 }
 
+// NewStoreWithLoader creates a new data store with a custom loader.
+// Useful for testing with mock loaders.
+func NewStoreWithLoader(loader *Loader) *Store {
+	return &Store{
+		loader: loader,
+	}
+}
+
 // Snapshot returns the current cached snapshot.
 // Returns nil if no data has been loaded.
 func (s *Store) Snapshot() *Snapshot {
