@@ -22,10 +22,11 @@ const (
 	SectionLifecycle
 	SectionWorktrees
 	SectionPlugins
+	SectionAlerts
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 9
+const SectionCount = 10
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -47,6 +48,8 @@ func (s SidebarSection) String() string {
 		return "Worktrees"
 	case SectionPlugins:
 		return "Plugins"
+	case SectionAlerts:
+		return "Alerts"
 	default:
 		return "Unknown"
 	}
@@ -153,6 +156,23 @@ func (w worktreeItem) Label() string {
 	return fmt.Sprintf("[%s] %s-%s", w.wt.Rig, w.wt.SourceRig, w.wt.SourceName)
 }
 func (w worktreeItem) Status() string { return w.wt.Status }
+
+// alertItem wraps data.LoadError for selection
+type alertItem struct {
+	e data.LoadError
+}
+
+func (a alertItem) ID() string { return a.e.Source + "-" + a.e.OccurredAt.Format("150405") }
+func (a alertItem) Label() string {
+	badge := statusErrorStyle.Render("!")
+	// Truncate error message for display
+	errMsg := a.e.Error
+	if len(errMsg) > 30 {
+		errMsg = errMsg[:27] + "..."
+	}
+	return fmt.Sprintf("%s %s: %s", badge, a.e.SourceLabel(), errMsg)
+}
+func (a alertItem) Status() string { return "error" }
 
 // rigItem wraps data.Rig for selection with aggregated counts
 type rigItem struct {
@@ -362,6 +382,7 @@ type SidebarState struct {
 	LifecycleEvents []lifecycleEventItem
 	Worktrees       []worktreeItem
 	Plugins         []pluginItem
+	Alerts          []alertItem // Load errors with actionable details
 
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
@@ -614,6 +635,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Plugins[i] = pluginItem{p}
 	}
 
+	// Update alerts from load errors
+	s.Alerts = make([]alertItem, len(snap.LoadErrors))
+	for i, err := range snap.LoadErrors {
+		s.Alerts[i] = alertItem{err}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -677,6 +704,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Plugins))
 		for i, p := range s.Plugins {
 			items[i] = p
+		}
+		return items
+	case SectionAlerts:
+		items := make([]SelectableItem, len(s.Alerts))
+		for i, a := range s.Alerts {
+			items[i] = a
 		}
 		return items
 	}
@@ -761,7 +794,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionIdentity; sec <= SectionPlugins; sec++ {
+	for sec := SectionIdentity; sec <= SectionAlerts; sec++ {
 		isActive := state.Section == sec
 		headerText := sec.String()
 		// For convoys, show active/history toggle state
@@ -771,6 +804,10 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			} else {
 				headerText = "Convoys [A]"
 			}
+		}
+		// For alerts, show count in header
+		if sec == SectionAlerts && len(state.Alerts) > 0 {
+			headerText = fmt.Sprintf("Alerts (%d)", len(state.Alerts))
 		}
 		header := renderSectionHeader(headerText, sec, isActive, state)
 		items := getSectionItems(state, sec)
@@ -785,6 +822,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
 			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionAlerts && len(items) == 0 {
+			// Special empty state for alerts
+			list = renderAlertsEmptyState(isActive)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -901,6 +941,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Plugins))
 		for i, p := range state.Plugins {
 			items[i] = p
+		}
+		return items
+	case SectionAlerts:
+		items := make([]SelectableItem, len(state.Alerts))
+		for i, a := range state.Alerts {
+			items[i] = a
 		}
 		return items
 	}
@@ -1162,6 +1208,17 @@ func renderConvoysList(state *SidebarState, items []SelectableItem, isActiveSect
 	return strings.Join(lines, "\n")
 }
 
+// renderAlertsEmptyState renders the empty state for the alerts section.
+func renderAlertsEmptyState(isActive bool) string {
+	var lines []string
+	lines = append(lines, idleStyle.Render("  ✓ No data load errors"))
+	lines = append(lines, mutedStyle.Render("  All subsystems healthy"))
+	if isActive {
+		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // AuditTimelineState holds the audit timeline data for the selected agent.
 type AuditTimelineState struct {
 	Actor   string
@@ -1256,9 +1313,65 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		if state.Selection >= 0 && state.Selection < len(state.Plugins) {
 			return renderPluginDetails(state.Plugins[state.Selection].p, width)
 		}
+	case SectionAlerts:
+		if state.Selection >= 0 && state.Selection < len(state.Alerts) {
+			return renderAlertDetails(state.Alerts[state.Selection].e, snap, width)
+		}
 	}
 
 	return mutedStyle.Render("Select an item to see details")
+}
+
+// renderAlertDetails renders detailed view of a load error.
+func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string {
+	var lines []string
+
+	// Header with source
+	lines = append(lines, headerStyle.Render("Load Error: "+e.SourceLabel()))
+	lines = append(lines, "")
+
+	// Error details
+	lines = append(lines, fmt.Sprintf("Source:    %s", e.Source))
+	lines = append(lines, fmt.Sprintf("Command:   %s", e.Command))
+	lines = append(lines, fmt.Sprintf("Time:      %s", e.OccurredAt.Format("2006-01-02 15:04:05")))
+	lines = append(lines, "")
+
+	// Error message section
+	lines = append(lines, headerStyle.Render("Error"))
+	// Wrap long error messages
+	errMsg := e.Error
+	if len(errMsg) > width-4 {
+		for len(errMsg) > width-4 {
+			lines = append(lines, statusErrorStyle.Render(errMsg[:width-4]))
+			errMsg = errMsg[width-4:]
+		}
+		if errMsg != "" {
+			lines = append(lines, statusErrorStyle.Render(errMsg))
+		}
+	} else {
+		lines = append(lines, statusErrorStyle.Render(errMsg))
+	}
+	lines = append(lines, "")
+
+	// Last successful load (if available)
+	if snap != nil && snap.LastSuccess != nil {
+		if lastSuccess, ok := snap.LastSuccess[e.Source]; ok {
+			lines = append(lines, headerStyle.Render("Last Successful Load"))
+			lines = append(lines, fmt.Sprintf("Time:      %s", lastSuccess.Format("2006-01-02 15:04:05")))
+			lines = append(lines, fmt.Sprintf("Ago:       %s", formatDuration(time.Since(lastSuccess))))
+			lines = append(lines, "")
+		}
+	}
+
+	// Suggested action
+	lines = append(lines, headerStyle.Render("Suggested Action"))
+	lines = append(lines, mutedStyle.Render(e.SuggestedAction()))
+	lines = append(lines, "")
+
+	// Quick actions hint
+	lines = append(lines, mutedStyle.Render("Press 'r' to refresh and retry loading"))
+
+	return strings.Join(lines, "\n")
 }
 
 func renderConvoyDetails(c data.Convoy, status *data.ConvoyStatus, width int, isHistory bool) string {

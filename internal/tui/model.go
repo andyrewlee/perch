@@ -839,6 +839,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "9":
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionAlerts
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
 	case "e":
 		// Edit rig settings (only when in Rigs section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionRigs {
@@ -1946,10 +1953,25 @@ func (m Model) buildAlerts() []string {
 		}
 	}
 
-	// Check for load errors
-	if m.snapshot.HasErrors() && len(alerts) < maxAlerts {
+	// Check for load errors - show which subsystems failed
+	if len(m.snapshot.LoadErrors) > 0 && len(alerts) < maxAlerts {
+		// Collect unique failed sources
+		var sources []string
+		seen := make(map[string]bool)
+		for _, err := range m.snapshot.LoadErrors {
+			label := err.SourceLabel()
+			if !seen[label] {
+				sources = append(sources, label)
+				seen[label] = true
+			}
+		}
+		// Show failed sources with hint to view details
+		sourceList := strings.Join(sources, ", ")
+		if len(sourceList) > 30 {
+			sourceList = sourceList[:27] + "..."
+		}
 		alerts = append(alerts, statusErrorStyle.Render("●")+
-			fmt.Sprintf(" %d data load error(s)", len(m.snapshot.Errors)))
+			fmt.Sprintf(" %s failed (press 8 for details)", sourceList))
 	}
 
 	return alerts
@@ -1987,7 +2009,7 @@ func (m Model) renderFooter() string {
 		var helpItems []string
 		switch m.focus {
 		case PanelSidebar:
-			helpItems = append(helpItems, "j/k: select", "h/l: section", "0-7: jump")
+			helpItems = append(helpItems, "j/k: select", "h/l: section", "0-9: jump")
 			if m.sidebar.Section == SectionRigs {
 				helpItems = append(helpItems, "e: edit settings")
 			}
@@ -2165,7 +2187,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
 		helpKeyStyle.Render("h/l") + "        Panel left/right, section switch",
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
-		helpKeyStyle.Render("0-8") + "        Jump to section (0=Identity, 1=Rigs...8=Plugins)",
+		helpKeyStyle.Render("0-9") + "        Jump to section (0=Identity...9=Alerts)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",

@@ -358,6 +358,72 @@ func (e *ValidationError) Error() string {
 	return e.Field + ": " + e.Message
 }
 
+// LoadError represents a structured error from loading a data source.
+// This provides actionable context about what failed and how to fix it.
+type LoadError struct {
+	Source     string    `json:"source"`      // e.g., "town_status", "merge_queue", "mail", "convoys"
+	Command    string    `json:"command"`     // e.g., "gt status --json --fast"
+	Error      string    `json:"error"`       // The error message
+	Stderr     string    `json:"stderr"`      // Raw stderr output (if available)
+	OccurredAt time.Time `json:"occurred_at"` // When this error happened
+}
+
+// SuggestedAction returns a suggested action for this error.
+func (e *LoadError) SuggestedAction() string {
+	switch e.Source {
+	case "town_status":
+		return "Check if gt is installed and $GT_ROOT is set correctly"
+	case "merge_queue":
+		return "Verify the rig exists and refinery is configured"
+	case "mail":
+		return "Check mail configuration with 'gt mail inbox'"
+	case "convoys":
+		return "Check convoy status with 'gt convoy list'"
+	case "issues":
+		return "Verify beads configuration with 'bd list'"
+	case "polecats":
+		return "Check polecat status with 'gt polecat list --all'"
+	case "lifecycle":
+		return "Check logs directory exists at $GT_ROOT/logs/town.log"
+	case "doctor":
+		return "Run 'gt doctor' manually to see full output"
+	case "worktrees":
+		return "Check crew directories exist in the rig"
+	default:
+		return "Check command manually: " + e.Command
+	}
+}
+
+// SourceLabel returns a human-readable label for the source.
+func (e *LoadError) SourceLabel() string {
+	switch e.Source {
+	case "town_status":
+		return "Town Status"
+	case "merge_queue":
+		return "Merge Queue"
+	case "mail":
+		return "Mail"
+	case "convoys":
+		return "Convoys"
+	case "closed_convoys":
+		return "Convoy History"
+	case "issues":
+		return "Issues"
+	case "hooked_issues":
+		return "Hooked Issues"
+	case "polecats":
+		return "Polecats"
+	case "lifecycle":
+		return "Lifecycle Log"
+	case "doctor":
+		return "Health Checks"
+	case "worktrees":
+		return "Worktrees"
+	default:
+		return e.Source
+	}
+}
+
 // CheckStatus represents the result status of a doctor check.
 type CheckStatus string
 
