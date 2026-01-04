@@ -169,6 +169,7 @@ func TestEnrichWithHookedBeads(t *testing.T) {
 			{ID: "gt-001", Title: "Task A", Assignee: "perch/polecats/ace"},
 			{ID: "gt-002", Title: "Task B", Assignee: "perch/polecats/slit"},
 		},
+		HookedLoaded: true, // Indicate successful load
 	}
 
 	// Run enrichment
@@ -196,20 +197,58 @@ func TestEnrichWithHookedBeads(t *testing.T) {
 }
 
 func TestEnrichWithHookedBeads_EmptyHooks(t *testing.T) {
-	// Snapshot with no hooked issues
+	// Snapshot with no hooked issues (load failed - HookedLoaded=false)
 	snap := &Snapshot{
 		Town: &TownStatus{
 			Summary: Summary{ActiveHooks: 0},
 		},
 		HookedIssues: nil,
+		HookedLoaded: false, // Load failed
 	}
 
 	// Should not panic
 	snap.EnrichWithHookedBeads()
 
-	// ActiveHooks should remain 0
+	// ActiveHooks should remain 0 (stale value preserved when load fails)
 	if snap.Town.Summary.ActiveHooks != 0 {
 		t.Errorf("expected ActiveHooks=0, got %d", snap.Town.Summary.ActiveHooks)
+	}
+}
+
+func TestEnrichWithHookedBeads_StaleActiveHooksReset(t *testing.T) {
+	// This tests the bug fix: when hooked issues load successfully with 0 results,
+	// a stale ActiveHooks value from gt status should be reset to 0.
+	snap := &Snapshot{
+		Town: &TownStatus{
+			Summary: Summary{ActiveHooks: 3}, // Stale value from gt status
+		},
+		HookedIssues: []Issue{}, // Empty - no hooked issues
+		HookedLoaded: true,      // But load succeeded!
+	}
+
+	snap.EnrichWithHookedBeads()
+
+	// ActiveHooks should be updated to 0 (matching actual hooked issues)
+	if snap.Town.Summary.ActiveHooks != 0 {
+		t.Errorf("expected ActiveHooks=0 (reset from stale value), got %d", snap.Town.Summary.ActiveHooks)
+	}
+}
+
+func TestEnrichWithHookedBeads_LoadFailedKeepsStaleValue(t *testing.T) {
+	// When hooked issues fail to load, keep the last-known value from gt status
+	snap := &Snapshot{
+		Town: &TownStatus{
+			Summary: Summary{ActiveHooks: 5}, // Last-known value from gt status
+		},
+		HookedIssues: nil,   // nil because load failed
+		HookedLoaded: false, // Load failed
+	}
+
+	snap.EnrichWithHookedBeads()
+
+	// ActiveHooks should remain 5 (last-known value preserved)
+	if snap.Town.Summary.ActiveHooks != 5 {
+		t.Errorf("expected ActiveHooks=5 (preserved), got %d", snap.Town.Summary.ActiveHooks)
 	}
 }
 
