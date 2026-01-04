@@ -411,6 +411,8 @@ func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *Op
 	// Check GT_DEGRADED environment variable
 	if os.Getenv("GT_DEGRADED") != "" {
 		state.DegradedMode = true
+		state.DegradedReason = "tmux unavailable"
+		state.DegradedAction = "run 'gt boot' with tmux installed"
 		state.Issues = append(state.Issues, "tmux unavailable - running in degraded mode")
 	}
 
@@ -420,17 +422,29 @@ func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *Op
 	}
 
 	// Check agent status from town data
+	deaconFound := false
 	if town != nil {
 		for _, agent := range town.Agents {
 			switch agent.Role {
 			case "health-check": // deacon
+				deaconFound = true
 				if agent.Running {
 					state.LastDeaconHeartbeat = time.Now()
 				} else {
 					state.WatchdogHealthy = false
+					state.WatchdogReason = "deacon stopped"
+					state.WatchdogAction = "run 'gt deacon start'"
 					state.Issues = append(state.Issues, "deacon not running - watchdog disabled")
 				}
 			}
+		}
+
+		// If no deacon found at all, watchdog is also unhealthy
+		if !deaconFound {
+			state.WatchdogHealthy = false
+			state.WatchdogReason = "deacon not registered"
+			state.WatchdogAction = "run 'gt boot' to initialize"
+			state.Issues = append(state.Issues, "deacon not found - run 'gt boot' to initialize")
 		}
 
 		// Check per-rig agents

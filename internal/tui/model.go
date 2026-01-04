@@ -1732,32 +1732,49 @@ func (m Model) buildOperationalBanner() string {
 		return mutedStyle.Render("○ Loading operational state...")
 	}
 
-	var parts []string
+	var lines []string
+	var actions []string
 
 	// Degraded mode - most severe
 	if state.DegradedMode {
-		parts = append(parts, degradedStyle.Render("⚠ DEGRADED MODE"))
+		badge := "⚠ DEGRADED MODE"
+		if state.DegradedReason != "" {
+			badge += ": " + state.DegradedReason
+		}
+		lines = append(lines, degradedStyle.Render(badge))
+		if state.DegradedAction != "" {
+			actions = append(actions, state.DegradedAction)
+		}
 	}
 
 	// Patrol muted
 	if state.PatrolMuted {
-		parts = append(parts, mutedBannerStyle.Render("⏸ PATROL MUTED"))
+		badge := "⏸ PATROL MUTED"
+		lines = append(lines, mutedBannerStyle.Render(badge))
+		actions = append(actions, "unset GT_PATROL_MUTED to resume")
 	}
 
 	// Watchdog status
 	if !state.WatchdogHealthy {
-		parts = append(parts, warningStyle.Render("⚠ WATCHDOG DOWN"))
+		badge := "⚠ WATCHDOG DOWN"
+		if state.WatchdogReason != "" {
+			badge += ": " + state.WatchdogReason
+		}
+		lines = append(lines, warningStyle.Render(badge))
+		if state.WatchdogAction != "" {
+			actions = append(actions, state.WatchdogAction)
+		}
 	}
 
 	// Show individual issues if not covered above
-	if len(state.Issues) > 0 && !state.DegradedMode && state.WatchdogHealthy {
+	if len(state.Issues) > 0 && !state.DegradedMode && state.WatchdogHealthy && !state.PatrolMuted {
 		for _, issue := range state.Issues {
-			parts = append(parts, warningStyle.Render("• "+issue))
+			lines = append(lines, warningStyle.Render("• "+issue))
 		}
 	}
 
 	// If no issues, show healthy status with heartbeat info
-	if len(parts) == 0 {
+	if len(lines) == 0 {
 		healthLine := healthyStyle.Render("✓ Healthy")
 
 		// Add heartbeat info
@@ -1788,7 +1805,16 @@ func (m Model) buildOperationalBanner() string {
 		return healthLine
 	}
 
-	return strings.Join(parts, "  ")
+	// Build the banner output
+	result := strings.Join(lines, "  ")
+
+	// Add action hints on a new line if any
+	if len(actions) > 0 {
+		actionLine := mutedStyle.Render("  → " + strings.Join(actions, ", "))
+		result += "\n" + actionLine
+	}
+
+	return result
 }
 
 // buildRigClusters creates a compact visual representation of rig status
