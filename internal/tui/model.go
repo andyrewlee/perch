@@ -1817,7 +1817,7 @@ func (m Model) renderHelpOverlay() string {
 	lines := strings.Split(content, "\n")
 	if len(lines) > innerHeight {
 		lines = lines[:innerHeight-1]
-		lines = append(lines, mutedStyle.Render("... (press any key)"))
+		lines = append(lines, mutedStyle.Render("... (Press any key)"))
 	}
 	for len(lines) < innerHeight {
 		lines = append(lines, "")
