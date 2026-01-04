@@ -1464,6 +1464,8 @@ func actionName(action ActionType) string {
 		return "Create work"
 	case ActionTogglePlugin:
 		return "Toggle plugin"
+	case ActionOpenSession:
+		return "Open session"
 	default:
 		return "Action"
 	}
@@ -2157,10 +2159,12 @@ func (m Model) renderHelpOverlay() string {
 		"",
 		helpHeaderStyle.Render("Keymap"),
 		"",
-		helpKeyStyle.Render("h/l") + "        Panel left/right, section switch",
-		helpKeyStyle.Render("j/k") + "        Navigate up/down",
+		helpKeyStyle.Render("?") + "          Show this help",
+		helpKeyStyle.Render("q") + "          Quit",
 		helpKeyStyle.Render("tab") + "        Next panel",
 		helpKeyStyle.Render("shift+tab") + "  Previous panel",
+		helpKeyStyle.Render("h/l") + "        Panel left/right, section switch",
+		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("0-8") + "        Jump to section (0=Identity, 1=Rigs...8=Plugins)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
@@ -2190,9 +2194,6 @@ func (m Model) renderHelpOverlay() string {
 		helpHeaderStyle.Render("Plugin Actions (when in Plugins section)"),
 		"",
 		helpKeyStyle.Render("e") + "          Toggle plugin enabled/disabled",
-		"",
-		helpKeyStyle.Render("?") + "          Show this help",
-		helpKeyStyle.Render("q") + "          Quit",
 	}
 
 	dismissMsg := "\n" + mutedStyle.Render("Press any key to dismiss")

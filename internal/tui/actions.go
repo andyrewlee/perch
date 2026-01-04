@@ -32,13 +32,14 @@ const (
 	ActionAckMail        // Acknowledge a mail message
 	ActionReplyMail      // Quick reply to a mail message
 	ActionRemoveWorktree
-	ActionCreateWork     // Create issue and optionally sling to polecat
+	ActionCreateWork   // Create issue and optionally sling to polecat
 	ActionSlingWork
 	ActionHandoff
 	ActionStopAgent
 	ActionNudgeAgent
 	ActionMailAgent
 	ActionTogglePlugin
+	ActionOpenSession // Attach to agent's tmux session (advanced)
 )
 
 // Action represents a user-triggered action with its result.
