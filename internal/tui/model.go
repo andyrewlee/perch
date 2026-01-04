@@ -1493,10 +1493,8 @@ func (m Model) buildOverviewContent() string {
 	}
 	lines = append(lines, headerLine)
 
-	// Operational state banner (only show if issues detected)
-	if m.snapshot.OperationalState != nil && m.snapshot.OperationalState.HasIssues() {
-		lines = append(lines, m.buildOperationalBanner())
-	}
+	// Operational state banner - always show health status
+	lines = append(lines, m.buildOperationalBanner())
 	lines = append(lines, "")
 
 	// Compact rig clusters visualization
@@ -1531,11 +1529,11 @@ func (m Model) buildOverviewContent() string {
 	return strings.Join(lines, "\n")
 }
 
-// buildOperationalBanner creates a status banner for operational issues
+// buildOperationalBanner creates a status banner for operational state
 func (m Model) buildOperationalBanner() string {
 	state := m.snapshot.OperationalState
 	if state == nil {
-		return ""
+		return mutedStyle.Render("○ Loading operational state...")
 	}
 
 	var parts []string
@@ -1550,7 +1548,7 @@ func (m Model) buildOperationalBanner() string {
 		parts = append(parts, mutedBannerStyle.Render("⏸ PATROL MUTED"))
 	}
 
-	// Watchdog unhealthy
+	// Watchdog status
 	if !state.WatchdogHealthy {
 		parts = append(parts, warningStyle.Render("⚠ WATCHDOG DOWN"))
 	}
@@ -1562,8 +1560,36 @@ func (m Model) buildOperationalBanner() string {
 		}
 	}
 
+	// If no issues, show healthy status with heartbeat info
 	if len(parts) == 0 {
-		return ""
+		healthLine := healthyStyle.Render("✓ Healthy")
+
+		// Add heartbeat info
+		var heartbeats []string
+
+		// Deacon heartbeat
+		if !state.LastDeaconHeartbeat.IsZero() {
+			ago := formatDuration(time.Since(state.LastDeaconHeartbeat))
+			heartbeats = append(heartbeats, "deacon: "+ago)
+		}
+
+		// Witness heartbeats (summarize)
+		witnessCount := len(state.LastWitnessHeartbeat)
+		if witnessCount > 0 {
+			heartbeats = append(heartbeats, fmt.Sprintf("%d witness", witnessCount))
+		}
+
+		// Refinery heartbeats (summarize)
+		refineryCount := len(state.LastRefineryHeartbeat)
+		if refineryCount > 0 {
+			heartbeats = append(heartbeats, fmt.Sprintf("%d refinery", refineryCount))
+		}
+
+		if len(heartbeats) > 0 {
+			healthLine += "  " + mutedStyle.Render("("+strings.Join(heartbeats, ", ")+")")
+		}
+
+		return healthLine
 	}
 
 	return strings.Join(parts, "  ")
@@ -1872,7 +1898,7 @@ func (m Model) renderHelpOverlay() string {
 		"",
 		helpHeaderStyle.Render("Behind the Scenes"),
 		"",
-		helpKeyStyle.Render("Sessions") + "   Powered by tmux (internal, no setup needed)",
+		helpKeyStyle.Render("Sessions") + "   Background processes for each agent",
 		"            Sessions persist even if Perch closes",
 	}
 
