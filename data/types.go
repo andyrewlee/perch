@@ -531,18 +531,3 @@ type BeadInfo struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Action    string    `json:"action,omitempty"` // created, updated, closed
 }
-
-// LoadError represents an error from a specific data loader.
-type LoadError struct {
-	// Source identifies which loader failed (e.g., "town", "polecats", "convoys", "issues", "mq-<rig>")
-	Source string
-	// Error is the actual error that occurred
-	Error error
-	// OccurredAt is when the error happened
-	OccurredAt time.Time
-}
-
-// String returns a human-readable representation of the error.
-func (e LoadError) String() string {
-	return e.Error.Error()
-}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -23,10 +24,11 @@ const (
 	SectionWorktrees
 	SectionPlugins
 	SectionAlerts
+	SectionErrors
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 10
+const SectionCount = 11
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -50,6 +52,8 @@ func (s SidebarSection) String() string {
 		return "Plugins"
 	case SectionAlerts:
 		return "Alerts"
+	case SectionErrors:
+		return "Errors"
 	default:
 		return "Unknown"
 	}
@@ -516,9 +520,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Convoys failed to load - find the convoy-specific error if any
 		s.ConvoysLoading = false
-		for _, loadErr := range snap.Errors {
-			if loadErr.Error != nil && strings.Contains(loadErr.Source, "Convoy") {
-				s.ConvoysLoadError = loadErr.Error
+		for _, loadErr := range snap.LoadErrors {
+			if loadErr.Error != "" && strings.Contains(loadErr.Source, "Convoy") {
+				s.ConvoysLoadError = errors.New(loadErr.Error)
 				break
 			}
 		}
@@ -552,13 +556,13 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 			s.MQsLastRefresh = snap.LoadedAt
 			s.MQsLoadError = nil
 			s.MQsLoading = false
-		} else if len(snap.Errors) > 0 && len(s.MRs) > 0 {
+		} else if len(snap.LoadErrors) > 0 && len(s.MRs) > 0 {
 			// No new MRs but we had some before and there are errors
 			// Preserve last-known MRs and set error state
 			s.MQsLoading = false
-			for _, loadErr := range snap.Errors {
-				if loadErr.Error != nil {
-					s.MQsLoadError = loadErr.Error
+			for _, loadErr := range snap.LoadErrors {
+				if loadErr.Error != "" {
+					s.MQsLoadError = errors.New(loadErr.Error)
 					break
 				}
 			}
@@ -573,9 +577,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Town failed to load - can't load MQ without it
 		s.MQsLoading = false
-		for _, loadErr := range snap.Errors {
-			if loadErr.Error != nil {
-				s.MQsLoadError = loadErr.Error
+		for _, loadErr := range snap.LoadErrors {
+			if loadErr.Error != "" {
+				s.MQsLoadError = errors.New(loadErr.Error)
 				break
 			}
 		}
@@ -595,9 +599,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	} else {
 		// Town failed to load - find the error if any
 		s.AgentsLoading = false
-		for _, loadErr := range snap.Errors {
-			if loadErr.Error != nil {
-				s.AgentsLoadError = loadErr.Error
+		for _, loadErr := range snap.LoadErrors {
+			if loadErr.Error != "" {
+				s.AgentsLoadError = errors.New(loadErr.Error)
 				break
 			}
 		}

@@ -1683,9 +1683,9 @@ func (m Model) buildOverviewContent() string {
 		// Town failed to load - surface the error
 		if m.snapshot.HasErrors() {
 			errMsg := "Failed to load town status"
-			for _, loadErr := range m.snapshot.Errors {
-				if loadErr.Error != nil {
-					errMsg = loadErr.Error.Error()
+			for _, loadErr := range m.snapshot.LoadErrors {
+				if loadErr.Error != "" {
+					errMsg = loadErr.Error
 					break
 				}
 			}

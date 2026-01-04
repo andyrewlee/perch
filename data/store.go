@@ -218,7 +218,7 @@ func (s *Store) Errors() []LoadError {
 	if snap == nil {
 		return nil
 	}
-	return snap.Errors
+	return snap.LoadErrors
 }
 
 // Loader returns the underlying data loader for direct queries.
