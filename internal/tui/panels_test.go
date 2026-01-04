@@ -292,3 +292,117 @@ func TestAgentsPanelNormalState(t *testing.T) {
 		t.Errorf("should not show 'Loading' in normal state, got: %s", result)
 	}
 }
+
+func TestRenderMergeQueueList_Loading(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = true
+
+	result := renderMergeQueueList(state, nil, nil, nil, false, 40, 10)
+
+	if !strings.Contains(result, "Loading queue") {
+		t.Errorf("expected 'Loading queue' in loading state, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_ErrorWithCachedItems(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = errors.New("test error")
+	state.MQsLastRefresh = time.Now().Add(-5 * time.Minute)
+	state.MRs = []mrItem{
+		{mr: data.MergeRequest{Title: "Fix: test-branch"}, rig: "perch"},
+	}
+
+	items := make([]SelectableItem, len(state.MRs))
+	for i, m := range state.MRs {
+		items[i] = m
+	}
+
+	result := renderMergeQueueList(state, nil, nil, items, false, 40, 10)
+
+	// Should show error banner
+	if !strings.Contains(result, "Load error") {
+		t.Errorf("expected 'Load error' when MQsLoadError is set, got: %s", result)
+	}
+	// Should show stale indicator
+	if !strings.Contains(result, "stale") {
+		t.Errorf("expected 'stale' indicator, got: %s", result)
+	}
+	// Should still show the cached item (Label format is "[rig] Title")
+	if !strings.Contains(result, "Fix: test-branch") {
+		t.Errorf("expected cached item 'Fix: test-branch' to still be visible, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_ErrorWithoutCachedItems(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = errors.New("test error")
+
+	result := renderMergeQueueList(state, nil, nil, nil, false, 40, 10)
+
+	// Should show error
+	if !strings.Contains(result, "Load error") {
+		t.Errorf("expected 'Load error' when MQsLoadError is set, got: %s", result)
+	}
+	// Should show no cached items message
+	if !strings.Contains(result, "no cached items") {
+		t.Errorf("expected 'no cached items' message, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_NormalWithItems(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = nil
+	state.MRs = []mrItem{
+		{mr: data.MergeRequest{Title: "Feature 1"}, rig: "perch"},
+		{mr: data.MergeRequest{Title: "Feature 2"}, rig: "perch"},
+	}
+
+	items := make([]SelectableItem, len(state.MRs))
+	for i, m := range state.MRs {
+		items[i] = m
+	}
+
+	result := renderMergeQueueList(state, nil, nil, items, false, 40, 10)
+
+	// Should NOT show error or loading
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should not show 'Load error' in normal state, got: %s", result)
+	}
+	if strings.Contains(result, "Loading") {
+		t.Errorf("should not show 'Loading' in normal state, got: %s", result)
+	}
+	// Should show items (Label format is "[rig] Title")
+	if !strings.Contains(result, "Feature 1") {
+		t.Errorf("expected 'Feature 1' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Feature 2") {
+		t.Errorf("expected 'Feature 2' in output, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_EmptyHealthyState(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = nil
+
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+	}
+
+	result := renderMergeQueueList(state, snap, nil, nil, false, 40, 10)
+
+	// Should show healthy empty state from renderMQEmptyState
+	if !strings.Contains(result, "Refinery idle") {
+		t.Errorf("expected 'Refinery idle' in healthy empty state, got: %s", result)
+	}
+	if !strings.Contains(result, "Queue clear") {
+		t.Errorf("expected 'Queue clear' in healthy empty state, got: %s", result)
+	}
+}

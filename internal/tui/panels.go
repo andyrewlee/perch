@@ -361,6 +361,11 @@ type SidebarState struct {
 	ConvoysLastRefresh time.Time // Last successful convoy data refresh
 	ConvoysLoadError   error     // Error from last convoy load attempt (nil if successful)
 	ConvoysLoading     bool      // True during initial load
+
+	// Loading/error state for merge queue panel
+	MQsLastRefresh time.Time // Last successful MQ data refresh
+	MQsLoadError   error     // Error from last MQ load attempt (nil if successful)
+	MQsLoading     bool      // True during initial load
 }
 
 // NewSidebarState creates a new sidebar state
@@ -370,6 +375,7 @@ func NewSidebarState() *SidebarState {
 		Selection:      0,
 		AgentsLoading:  true, // Start in loading state until first successful refresh
 		ConvoysLoading: true, // Start in loading state until first successful refresh
+		MQsLoading:     true, // Start in loading state until first successful refresh
 	}
 }
 
@@ -439,12 +445,52 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	}
 	// Note: we use the same error state for both - if active convoys fail, closed likely did too
 
-	// Update merge requests (flatten all rigs)
-	s.MRs = nil
-	for rig, mrs := range snap.MergeQueues {
-		for _, mr := range mrs {
-			s.MRs = append(s.MRs, mrItem{mr, rig})
+	// Update merge requests (flatten all rigs) with loading/error tracking
+	// Per acceptance criteria: preserve last-known MRs when load fails, show error state
+	if snap.Town != nil {
+		// Town loaded, try to get MQ data
+		var newMRs []mrItem
+		for rig, mrs := range snap.MergeQueues {
+			for _, mr := range mrs {
+				newMRs = append(newMRs, mrItem{mr, rig})
+			}
 		}
+
+		// Check if we have MQ data or if there were errors
+		if len(newMRs) > 0 {
+			// Got MRs - use them and clear error state
+			s.MRs = newMRs
+			s.MQsLastRefresh = snap.LoadedAt
+			s.MQsLoadError = nil
+			s.MQsLoading = false
+		} else if len(snap.Errors) > 0 && len(s.MRs) > 0 {
+			// No new MRs but we had some before and there are errors
+			// Preserve last-known MRs and set error state
+			s.MQsLoading = false
+			for _, err := range snap.Errors {
+				if err != nil {
+					s.MQsLoadError = err
+					break
+				}
+			}
+			// Preserve s.MRs (last-known value) - don't clear it
+		} else {
+			// Healthy empty state (no errors, or we had no MRs before)
+			s.MRs = newMRs
+			s.MQsLastRefresh = snap.LoadedAt
+			s.MQsLoadError = nil
+			s.MQsLoading = false
+		}
+	} else {
+		// Town failed to load - can't load MQ without it
+		s.MQsLoading = false
+		for _, err := range snap.Errors {
+			if err != nil {
+				s.MQsLoadError = err
+				break
+			}
+		}
+		// Preserve s.MRs (last-known value) - don't clear it
 	}
 
 	// Update agents with loading/error tracking
@@ -659,9 +705,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		items := getSectionItems(state, sec)
 
 		var list string
-		if sec == SectionMergeQueue && len(items) == 0 {
-			// Special empty state for merge queue with context
-			list = renderMQEmptyState(snap, opts, isActive, innerWidth)
+		if sec == SectionMergeQueue {
+			// Special handling for merge queue with loading/error states
+			list = renderMergeQueueList(state, snap, opts, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAgents {
 			// Special handling for agents section with loading/error states
 			list = renderAgentsList(state, items, isActive, innerWidth, sectionHeight)
@@ -848,6 +894,64 @@ func renderItemList(items []SelectableItem, selection int, isActiveSection bool,
 		}
 
 		if isActiveSection && i == selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderMergeQueueList renders the merge queue list with loading/error state indicators.
+// Per acceptance criteria: preserve last-known MRs when load fails, show error + stale data.
+func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *SidebarOptions, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	var lines []string
+
+	// Show loading indicator during initial load
+	if state.MQsLoading {
+		lines = append(lines, mutedStyle.Render("  Loading queue..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if MQ failed to load (but still show last-known items)
+	if state.MQsLoadError != nil {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.MQsLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (stale: " + state.MQsLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+	}
+
+	// If no items, show appropriate empty state
+	if len(items) == 0 {
+		if state.MQsLoadError != nil {
+			lines = append(lines, mutedStyle.Render("  (no cached items)"))
+		} else {
+			// Healthy empty state - call the existing helper
+			return renderMQEmptyState(snap, opts, isActiveSection, width)
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Calculate remaining lines for MR list (accounting for error banner if present)
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render MR items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
 			lines = append(lines, selectedItemStyle.Render("> "+label))
 		} else {
 			lines = append(lines, itemStyle.Render("  "+label))
