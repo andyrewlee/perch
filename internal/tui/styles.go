@@ -201,6 +201,9 @@ var (
 	warningStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#FFA500")).
 			Bold(true)
+
+	healthyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00FF00"))
 )
 
 // Convoy styles
