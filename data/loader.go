@@ -1095,6 +1095,21 @@ func (s *Snapshot) UnreadMail() []MailMessage {
 	return unread
 }
 
+// HooksDataStale returns true if hook counts may be stale due to:
+// - Watchdog/deacon being down (can't refresh agent states)
+// - HookedIssues failing to load (fallback to gt status value)
+func (s *Snapshot) HooksDataStale() bool {
+	// If operational state shows watchdog unhealthy, data may be stale
+	if s.OperationalState != nil && !s.OperationalState.WatchdogHealthy {
+		return true
+	}
+	// If we failed to load hooked issues, we're using stale data from gt status
+	if !s.HookedLoaded {
+		return true
+	}
+	return false
+}
+
 // EnrichWithHookedBeads reconciles bead-based hook state with town status.
 // This updates:
 // - Summary.ActiveHooks to reflect actual hooked beads
@@ -1137,6 +1152,7 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 	// Update agents and hooks within each rig
 	for i := range s.Town.Rigs {
 		rig := &s.Town.Rigs[i]
+		activeCount := 0
 
 		// Update rig-level agents
 		for j := range rig.Agents {
@@ -1153,16 +1169,49 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 			// Check both formats
 			if _, ok := hookedByAssignee[hook.Agent]; ok {
 				hook.HasWork = true
-			}
-			// Try polecat format: rig/polecats/name
-			parts := splitAgentAddress(hook.Agent)
-			if len(parts) == 2 {
-				polecatAddr := parts[0] + "/polecats/" + parts[1]
-				if _, ok := hookedByAssignee[polecatAddr]; ok {
-					hook.HasWork = true
+				activeCount++
+			} else {
+				// Try polecat format: rig/polecats/name
+				parts := splitAgentAddress(hook.Agent)
+				if len(parts) == 2 {
+					polecatAddr := parts[0] + "/polecats/" + parts[1]
+					if _, ok := hookedByAssignee[polecatAddr]; ok {
+						hook.HasWork = true
+						activeCount++
+					}
 				}
 			}
 		}
+
+		// Also count hooked issues assigned to agents not in Hooks array
+		// by checking all hooked issues whose assignee starts with this rig name
+		rigPrefix := rig.Name + "/"
+		for _, issue := range s.HookedIssues {
+			if strings.HasPrefix(issue.Assignee, rigPrefix) {
+				// Check if this assignee was already counted via Hooks
+				alreadyCounted := false
+				for _, hook := range rig.Hooks {
+					if hook.Agent == issue.Assignee {
+						alreadyCounted = true
+						break
+					}
+					// Also check polecat format conversion
+					parts := splitAgentAddress(hook.Agent)
+					if len(parts) == 2 {
+						polecatAddr := parts[0] + "/polecats/" + parts[1]
+						if polecatAddr == issue.Assignee {
+							alreadyCounted = true
+							break
+						}
+					}
+				}
+				if !alreadyCounted {
+					activeCount++
+				}
+			}
+		}
+
+		rig.ActiveHooks = activeCount
 	}
 }
 

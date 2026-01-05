@@ -194,6 +194,11 @@ func TestEnrichWithHookedBeads(t *testing.T) {
 	if !hooks[2].HasWork {
 		t.Errorf("expected perch/slit hook to have work")
 	}
+
+	// Verify Rig.ActiveHooks is computed correctly (should match agents with hooked work)
+	if snap.Town.Rigs[0].ActiveHooks != 2 {
+		t.Errorf("expected Rig.ActiveHooks=2, got %d", snap.Town.Rigs[0].ActiveHooks)
+	}
 }
 
 func TestEnrichWithHookedBeads_EmptyHooks(t *testing.T) {
@@ -263,6 +268,109 @@ func TestEnrichWithHookedBeads_NilTown(t *testing.T) {
 
 	// Should not panic
 	snap.EnrichWithHookedBeads()
+}
+
+func TestEnrichWithHookedBeads_AgentsNotInHooksArray(t *testing.T) {
+	// Test that hooked issues for agents not in Hooks array are still counted in ActiveHooks
+	snap := &Snapshot{
+		Town: &TownStatus{
+			Name: "test-town",
+			Summary: Summary{
+				ActiveHooks: 0,
+			},
+			Rigs: []Rig{
+				{
+					Name: "perch",
+					// Only one hook in array, but there are 3 hooked issues
+					Hooks: []Hook{
+						{Agent: "perch/ace", Role: "polecat", HasWork: false},
+					},
+				},
+			},
+		},
+		HookedIssues: []Issue{
+			{ID: "gt-001", Title: "Task A", Assignee: "perch/polecats/ace"},   // Matches via polecat format
+			{ID: "gt-002", Title: "Task B", Assignee: "perch/polecats/nux"},   // NOT in Hooks array
+			{ID: "gt-003", Title: "Task C", Assignee: "perch/witness"},        // Infrastructure agent
+		},
+		HookedLoaded: true,
+	}
+
+	snap.EnrichWithHookedBeads()
+
+	// Summary.ActiveHooks should count all 3 hooked issues
+	if snap.Town.Summary.ActiveHooks != 3 {
+		t.Errorf("expected Summary.ActiveHooks=3, got %d", snap.Town.Summary.ActiveHooks)
+	}
+
+	// Rig.ActiveHooks should also count all 3 (including those not in Hooks array)
+	if snap.Town.Rigs[0].ActiveHooks != 3 {
+		t.Errorf("expected Rig.ActiveHooks=3 (including agents not in Hooks array), got %d", snap.Town.Rigs[0].ActiveHooks)
+	}
+}
+
+func TestHooksDataStale(t *testing.T) {
+	tests := []struct {
+		name     string
+		snap     *Snapshot
+		expected bool
+	}{
+		{
+			name: "healthy - not stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: true,
+				},
+				HookedLoaded: true,
+			},
+			expected: false,
+		},
+		{
+			name: "watchdog unhealthy - stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: false,
+				},
+				HookedLoaded: true,
+			},
+			expected: true,
+		},
+		{
+			name: "hooked issues failed to load - stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: true,
+				},
+				HookedLoaded: false,
+			},
+			expected: true,
+		},
+		{
+			name: "nil operational state - not stale (only check HookedLoaded)",
+			snap: &Snapshot{
+				OperationalState: nil,
+				HookedLoaded:     true,
+			},
+			expected: false,
+		},
+		{
+			name: "nil operational state and failed load - stale",
+			snap: &Snapshot{
+				OperationalState: nil,
+				HookedLoaded:     false,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.snap.HooksDataStale()
+			if got != tt.expected {
+				t.Errorf("HooksDataStale() = %v, expected %v", got, tt.expected)
+			}
+		})
+	}
 }
 
 func TestRigSettingsValidation(t *testing.T) {
