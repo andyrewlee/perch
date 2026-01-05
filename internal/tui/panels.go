@@ -466,6 +466,12 @@ type SidebarState struct {
 	MQsLoadError   error     // Error from last MQ load attempt (nil if successful)
 	MQsLoading     bool      // True during initial load
 
+	// Loading/error state for mail panel
+	MailLastRefresh   time.Time // Last successful mail data refresh
+	MailLoadError     error     // Error from last mail load attempt (nil if successful)
+	MailLoading       bool      // True during initial load
+	MailUnreadCount   int       // Unread count from gt status (preserved when mail load fails)
+
 	// LastSuccess tracks the last successful refresh time
 	LastSuccess time.Time
 }
@@ -478,6 +484,7 @@ func NewSidebarState() *SidebarState {
 		AgentsLoading:  true, // Start in loading state until first successful refresh
 		ConvoysLoading: true, // Start in loading state until first successful refresh
 		MQsLoading:     true, // Start in loading state until first successful refresh
+		MailLoading:    true, // Start in loading state until first successful refresh
 	}
 }
 
@@ -683,10 +690,33 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		// Preserve s.Agents (last-known value) - don't clear it
 	}
 
-	// Update mail
-	s.Mail = make([]mailItem, len(snap.Mail))
-	for i, m := range snap.Mail {
-		s.Mail[i] = mailItem{m}
+	// Update mail with loading/error tracking
+	// First, capture unread count from town status (this is always available from gt status --fast)
+	if snap.Town != nil {
+		s.MailUnreadCount = snap.Town.Overseer.UnreadMail
+	}
+
+	// Check if mail was loaded successfully or if there was an error
+	mailLoadedOK := true
+	for _, loadErr := range snap.LoadErrors {
+		if loadErr.Source == "mail" {
+			mailLoadedOK = false
+			s.MailLoadError = errors.New(loadErr.Error)
+			s.MailLoading = false
+			// Preserve s.Mail (last-known value) - don't clear it
+			break
+		}
+	}
+
+	if mailLoadedOK {
+		// Mail loaded successfully - update the list
+		s.Mail = make([]mailItem, len(snap.Mail))
+		for i, m := range snap.Mail {
+			s.Mail[i] = mailItem{m}
+		}
+		s.MailLastRefresh = snap.LoadedAt
+		s.MailLoadError = nil
+		s.MailLoading = false
 	}
 
 	// Update lifecycle events (with filtering)
@@ -939,6 +969,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
 			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionMail {
+			// Special handling for mail section with loading/error states
+			list = renderMailList(state, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAlerts && len(items) == 0 {
 			// Special empty state for alerts
 			list = renderAlertsEmptyState(isActive)
@@ -1323,6 +1356,82 @@ func renderConvoysList(state *SidebarState, items []SelectableItem, isActiveSect
 	}
 
 	// Render convoy items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderMailList renders the mail list with loading/error state indicators.
+// Per acceptance criteria: show unread count from gt status when mail load fails,
+// preserve last-known mail when load fails.
+func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	var lines []string
+
+	// Show loading indicator during initial load
+	if state.MailLoading {
+		lines = append(lines, mutedStyle.Render("  Loading mail..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if mail failed to load (but still show last-known items)
+	if state.MailLoadError != nil {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.MailLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (last: " + state.MailLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+
+		// If we have a known unread count from gt status, show it
+		if state.MailUnreadCount > 0 {
+			lines = append(lines, attentionStyle.Render(fmt.Sprintf("  %d unread (from status)", state.MailUnreadCount)))
+		}
+	}
+
+	// Show last-known mail (or empty state if none)
+	if len(items) == 0 {
+		if state.MailLoadError != nil {
+			// Already showed error above, add hint
+			lines = append(lines, mutedStyle.Render("  (no cached messages)"))
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Press 'r' to retry"))
+			}
+		} else if state.MailUnreadCount > 0 {
+			// Mail loaded OK but empty, yet gt status reports unread mail
+			// This is the bug case: deacon healthy, unread > 0, but inbox empty
+			lines = append(lines, attentionStyle.Render(fmt.Sprintf("  %d unread (loading issue)", state.MailUnreadCount)))
+			lines = append(lines, mutedStyle.Render("  Try: gt mail inbox"))
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
+			}
+		} else {
+			// Healthy empty state - no mail
+			lines = append(lines, mutedStyle.Render("  (no messages)"))
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Calculate remaining lines for mail list (accounting for error banner if present)
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render mail items
 	for i, item := range items {
 		if len(lines) >= maxLines {
 			break
