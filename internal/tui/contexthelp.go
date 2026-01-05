@@ -26,6 +26,8 @@ func SectionHelp(section SidebarSection) string {
 		return "Town extensions"
 	case SectionErrors:
 		return "Load errors"
+	case SectionBeads:
+		return "Browse issues"
 	default:
 		return ""
 	}

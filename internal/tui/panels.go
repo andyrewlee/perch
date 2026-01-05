@@ -25,10 +25,11 @@ const (
 	SectionPlugins
 	SectionAlerts
 	SectionErrors
+	SectionBeads // Beads browser (issues)
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 11
+const SectionCount = 12
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -54,6 +55,8 @@ func (s SidebarSection) String() string {
 		return "Alerts"
 	case SectionErrors:
 		return "Errors"
+	case SectionBeads:
+		return "Beads"
 	default:
 		return "Unknown"
 	}
@@ -177,6 +180,58 @@ func (a alertItem) Label() string {
 	return fmt.Sprintf("%s %s: %s", badge, a.e.SourceLabel(), errMsg)
 }
 func (a alertItem) Status() string { return "error" }
+
+// BeadsScope represents the scope filter for beads (town vs rig)
+type BeadsScope int
+
+const (
+	BeadsScopeRig  BeadsScope = iota // Show rig-level issues (non-hq- prefix)
+	BeadsScopeTown                   // Show town-level issues (hq- prefix)
+)
+
+func (s BeadsScope) String() string {
+	switch s {
+	case BeadsScopeTown:
+		return "Town"
+	case BeadsScopeRig:
+		return "Rig"
+	default:
+		return "Unknown"
+	}
+}
+
+// beadItem wraps data.Issue for selection in the beads browser
+type beadItem struct {
+	issue data.Issue
+}
+
+func (b beadItem) ID() string { return b.issue.ID }
+func (b beadItem) Label() string {
+	// Priority badge
+	priorityBadge := fmt.Sprintf("P%d", b.issue.Priority)
+
+	// Status indicator
+	statusIndicator := ""
+	switch b.issue.Status {
+	case "hooked":
+		statusIndicator = workingStyle.Render("●")
+	case "in_progress":
+		statusIndicator = workingStyle.Render("▶")
+	case "closed":
+		statusIndicator = mutedStyle.Render("✓")
+	default: // open
+		statusIndicator = idleStyle.Render("○")
+	}
+
+	// Truncate title if needed
+	title := b.issue.Title
+	if len(title) > 25 {
+		title = title[:22] + "..."
+	}
+
+	return fmt.Sprintf("%s [%s] %s", statusIndicator, priorityBadge, title)
+}
+func (b beadItem) Status() string { return b.issue.Status }
 
 // rigItem wraps data.Rig for selection with aggregated counts
 type rigItem struct {
@@ -387,6 +442,10 @@ type SidebarState struct {
 	Worktrees       []worktreeItem
 	Plugins         []pluginItem
 	Alerts          []alertItem // Load errors with actionable details
+	Beads           []beadItem  // Beads browser items (filtered by scope)
+
+	// Beads scope: Town (hq-*) vs Rig
+	BeadsScope BeadsScope
 
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
@@ -482,6 +541,22 @@ func (s *SidebarState) ConvoyViewLabel() string {
 		return "History"
 	}
 	return "Active"
+}
+
+// ToggleBeadsScope toggles between rig and town bead scopes.
+func (s *SidebarState) ToggleBeadsScope() {
+	if s.BeadsScope == BeadsScopeRig {
+		s.BeadsScope = BeadsScopeTown
+	} else {
+		s.BeadsScope = BeadsScopeRig
+	}
+	s.Selection = 0
+	s.clampSelection()
+}
+
+// BeadsScopeLabel returns a label describing the current beads scope.
+func (s *SidebarState) BeadsScopeLabel() string {
+	return s.BeadsScope.String()
 }
 
 // UpdateFromSnapshot refreshes the sidebar data from a snapshot
@@ -648,6 +723,17 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Alerts[i] = alertItem{err}
 	}
 
+	// Update beads (filtered by scope)
+	s.Beads = nil
+	for _, issue := range snap.Issues {
+		isTownIssue := strings.HasPrefix(issue.ID, "hq-")
+		if s.BeadsScope == BeadsScopeTown && isTownIssue {
+			s.Beads = append(s.Beads, beadItem{issue})
+		} else if s.BeadsScope == BeadsScopeRig && !isTownIssue {
+			s.Beads = append(s.Beads, beadItem{issue})
+		}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -717,6 +803,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Alerts))
 		for i, a := range s.Alerts {
 			items[i] = a
+		}
+		return items
+	case SectionBeads:
+		items := make([]SelectableItem, len(s.Beads))
+		for i, b := range s.Beads {
+			items[i] = b
 		}
 		return items
 	}
@@ -806,7 +898,12 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionIdentity; sec <= SectionAlerts; sec++ {
+	for sec := SectionIdentity; sec <= SectionBeads; sec++ {
+		// Skip SectionErrors (it's an alias for Alerts)
+		if sec == SectionErrors {
+			continue
+		}
+
 		isActive := state.Section == sec
 		headerText := sec.String()
 		// For convoys, show active/history toggle state
@@ -820,6 +917,14 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		// For alerts, show count in header
 		if sec == SectionAlerts && len(state.Alerts) > 0 {
 			headerText = fmt.Sprintf("Alerts (%d)", len(state.Alerts))
+		}
+		// For beads, show scope toggle state [R]ig or [T]own
+		if sec == SectionBeads {
+			if state.BeadsScope == BeadsScopeTown {
+				headerText = fmt.Sprintf("Beads [T] (%d)", len(state.Beads))
+			} else {
+				headerText = fmt.Sprintf("Beads [R] (%d)", len(state.Beads))
+			}
 		}
 		header := renderSectionHeader(headerText, sec, isActive, state)
 		items := getSectionItems(state, sec)
@@ -837,6 +942,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionAlerts && len(items) == 0 {
 			// Special empty state for alerts
 			list = renderAlertsEmptyState(isActive)
+		} else if sec == SectionBeads && len(items) == 0 {
+			// Special empty state for beads
+			list = renderBeadsEmptyState(state, isActive)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -959,6 +1067,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Alerts))
 		for i, a := range state.Alerts {
 			items[i] = a
+		}
+		return items
+	case SectionBeads:
+		items := make([]SelectableItem, len(state.Beads))
+		for i, b := range state.Beads {
+			items[i] = b
 		}
 		return items
 	}
@@ -1240,6 +1354,21 @@ func renderAlertsEmptyState(isActive bool) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderBeadsEmptyState renders the empty state for the beads section.
+func renderBeadsEmptyState(state *SidebarState, isActive bool) string {
+	var lines []string
+	scopeLabel := "rig"
+	if state.BeadsScope == BeadsScopeTown {
+		scopeLabel = "town"
+	}
+	lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No %s-level issues", scopeLabel)))
+	if isActive {
+		lines = append(lines, mutedStyle.Render("  Press 's' to switch scope"))
+		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
+	}
+	return strings.Join(lines, "\n")
+}
+
 // AuditTimelineState holds the audit timeline data for the selected agent.
 type AuditTimelineState struct {
 	Actor   string
@@ -1338,6 +1467,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		if state.Selection >= 0 && state.Selection < len(state.Alerts) {
 			return renderAlertDetails(state.Alerts[state.Selection].e, snap, width)
 		}
+	case SectionBeads:
+		if state.Selection >= 0 && state.Selection < len(state.Beads) {
+			return renderBeadDetails(state.Beads[state.Selection].issue, state, width)
+		}
 	}
 
 	return mutedStyle.Render("Select an item to see details")
@@ -1393,6 +1526,96 @@ func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string
 	lines = append(lines, mutedStyle.Render("Press 'r' to refresh and retry loading"))
 
 	return strings.Join(lines, "\n")
+}
+
+// renderBeadDetails renders the detailed view of a bead (issue).
+func renderBeadDetails(issue data.Issue, state *SidebarState, width int) string {
+	var lines []string
+
+	// Header with scope indicator
+	scopeLabel := "Rig"
+	if state.BeadsScope == BeadsScopeTown {
+		scopeLabel = "Town"
+	}
+	lines = append(lines, headerStyle.Render(fmt.Sprintf("Bead (%s)", scopeLabel)))
+	lines = append(lines, "")
+
+	// Basic info
+	lines = append(lines, fmt.Sprintf("ID:       %s", issue.ID))
+	lines = append(lines, fmt.Sprintf("Title:    %s", truncateStr(issue.Title, width-10)))
+	lines = append(lines, fmt.Sprintf("Type:     %s", issue.IssueType))
+	lines = append(lines, fmt.Sprintf("Priority: P%d", issue.Priority))
+
+	// Status with visual indicator
+	statusBadge := beadStatusBadge(issue.Status)
+	lines = append(lines, fmt.Sprintf("Status:   %s %s", statusBadge, issue.Status))
+	lines = append(lines, "")
+
+	// Assignee
+	if issue.Assignee != "" {
+		lines = append(lines, fmt.Sprintf("Assignee: %s", issue.Assignee))
+	} else {
+		lines = append(lines, mutedStyle.Render("Assignee: (unassigned)"))
+	}
+
+	// Created/Updated
+	lines = append(lines, fmt.Sprintf("Created:  %s by %s", issue.CreatedAt.Format("2006-01-02 15:04"), issue.CreatedBy))
+	lines = append(lines, fmt.Sprintf("Updated:  %s", issue.UpdatedAt.Format("2006-01-02 15:04")))
+	lines = append(lines, "")
+
+	// Dependencies
+	if issue.DependencyCount > 0 || issue.DependentCount > 0 {
+		lines = append(lines, headerStyle.Render("Dependencies"))
+		if issue.DependencyCount > 0 {
+			lines = append(lines, fmt.Sprintf("  Blocked by: %d issues", issue.DependencyCount))
+		}
+		if issue.DependentCount > 0 {
+			lines = append(lines, fmt.Sprintf("  Blocking:   %d issues", issue.DependentCount))
+		}
+		lines = append(lines, "")
+	}
+
+	// Labels
+	if len(issue.Labels) > 0 {
+		lines = append(lines, headerStyle.Render("Labels"))
+		lines = append(lines, "  "+strings.Join(issue.Labels, ", "))
+		lines = append(lines, "")
+	}
+
+	// Description (if any)
+	if issue.Description != "" {
+		lines = append(lines, headerStyle.Render("Description"))
+		// Wrap description to width
+		desc := issue.Description
+		for len(desc) > width-4 {
+			lines = append(lines, "  "+desc[:width-4])
+			desc = desc[width-4:]
+		}
+		if desc != "" {
+			lines = append(lines, "  "+desc)
+		}
+		lines = append(lines, "")
+	}
+
+	// Quick actions hint
+	lines = append(lines, mutedStyle.Render("Press 's' to switch scope (Rig/Town)"))
+	lines = append(lines, mutedStyle.Render("Press 'r' to refresh"))
+
+	return strings.Join(lines, "\n")
+}
+
+// beadStatusBadge returns a colored badge for bead status.
+func beadStatusBadge(status string) string {
+	switch status {
+	case "hooked":
+		return workingStyle.Render("●")
+	case "in_progress":
+		return workingStyle.Render("▶")
+	case "closed":
+		return mutedStyle.Render("✓")
+	default: // open
+		return idleStyle.Render("○")
+	}
 }
 
 func renderConvoyDetails(c data.Convoy, status *data.ConvoyStatus, width int, isHistory bool) string {
@@ -2053,19 +2276,5 @@ func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, width int
 	}
 
 	return strings.Join(lines, "\n")
-}
-
-// beadStatusBadge returns a colored badge for bead status
-func beadStatusBadge(status string) string {
-	switch status {
-	case "open":
-		return idleStyle.Render("○")
-	case "in_progress", "hooked":
-		return workingStyle.Render("●")
-	case "closed":
-		return stoppedStyle.Render("✓")
-	default:
-		return mutedStyle.Render("?")
-	}
 }
 
