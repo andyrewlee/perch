@@ -1098,15 +1098,21 @@ func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool
 		}
 	}
 
-	// Show refinery status
+	// Show refinery status with actionable hints
 	if refineryCount > 0 {
 		if refineryRunning {
 			lines = append(lines, idleStyle.Render("  ○ Refinery idle"))
 		} else {
 			lines = append(lines, stoppedStyle.Render("  ◌ Refinery stopped"))
+			if isActive {
+				lines = append(lines, mutedStyle.Render("  Select rig, press 'b' to boot"))
+			}
 		}
 	} else {
-		lines = append(lines, mutedStyle.Render("  No refinery configured"))
+		lines = append(lines, mutedStyle.Render("  Refinery not configured"))
+		if isActive {
+			lines = append(lines, mutedStyle.Render("  (rig has no refinery agent)"))
+		}
 	}
 
 	// Healthy empty hint
@@ -1261,10 +1267,10 @@ func renderAgentsList(state *SidebarState, snap *data.Snapshot, items []Selectab
 			// Check if services appear stopped (no agents registered or watchdog unhealthy)
 			servicesStopped := servicesAppearStopped(snap)
 			if servicesStopped {
-				lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+				lines = append(lines, stoppedStyle.Render("  ◌ Services stopped"))
 				if isActiveSection {
-					lines = append(lines, mutedStyle.Render("  Start deacon/witness/refinery"))
-					lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+					lines = append(lines, mutedStyle.Render("  Deacon/witness/refinery not running"))
+					lines = append(lines, mutedStyle.Render("  Select rig in sidebar, press 'b' to boot"))
 				}
 			} else {
 				lines = append(lines, mutedStyle.Render("  (empty)"))
@@ -1275,9 +1281,9 @@ func renderAgentsList(state *SidebarState, snap *data.Snapshot, items []Selectab
 
 	// Check if all agents are stopped (services not running)
 	if allAgentsStopped(state.Agents) {
-		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped"))
 		if isActiveSection {
-			lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+			lines = append(lines, mutedStyle.Render("  Select rig in sidebar, press 'b' to boot"))
 		}
 	}
 

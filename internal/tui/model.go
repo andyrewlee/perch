@@ -1967,6 +1967,22 @@ func (m Model) buildAlerts() []string {
 		}
 	}
 
+	// Check for watchdog down (deacon not running) - highest priority alert
+	if m.snapshot.OperationalState != nil && !m.snapshot.OperationalState.WatchdogHealthy {
+		if len(alerts) < maxAlerts {
+			reason := "deacon stopped"
+			if m.snapshot.OperationalState.WatchdogReason != "" {
+				reason = m.snapshot.OperationalState.WatchdogReason
+			}
+			action := "gt boot"
+			if m.snapshot.OperationalState.WatchdogAction != "" {
+				action = m.snapshot.OperationalState.WatchdogAction
+			}
+			alerts = append(alerts, warningStyle.Render("⚠")+
+				fmt.Sprintf(" Watchdog down: %s (%s)", reason, action))
+		}
+	}
+
 	// Check for stopped infrastructure (witness/refinery)
 	for _, rig := range m.snapshot.Town.Rigs {
 		if len(alerts) >= maxAlerts {
@@ -1978,7 +1994,7 @@ func (m Model) buildAlerts() []string {
 			}
 			if !agent.Running && (agent.Role == "witness" || agent.Role == "refinery") {
 				alerts = append(alerts, stoppedStyle.Render("◌")+
-					fmt.Sprintf(" [%s] %s is stopped", rig.Name, agent.Role))
+					fmt.Sprintf(" [%s] %s stopped (select rig, b=boot)", rig.Name, agent.Role))
 			}
 		}
 	}
