@@ -506,6 +506,20 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.actionCmd(ActionBootRig, m.selectedRig)
 
 	case "s":
+		// Context-dependent: Toggle beads scope (Beads section) or shutdown rig (Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.ToggleBeadsScope()
+			// Re-filter beads after scope change
+			if m.snapshot != nil {
+				m.sidebar.UpdateFromSnapshot(m.snapshot)
+			}
+			scopeName := "rig"
+			if m.sidebar.BeadsScope == BeadsScopeTown {
+				scopeName = "town"
+			}
+			m.setStatus("Showing "+scopeName+" beads", false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
 		// Shutdown selected rig (requires confirmation)
 		if m.selectedRig == "" {
 			m.setStatus("No rig selected. Use j/k to select a rig.", true)
