@@ -28,6 +28,8 @@ func SectionHelp(section SidebarSection) string {
 		return "Load errors"
 	case SectionBeads:
 		return "Browse issues"
+	case SectionOperator:
+		return "System health"
 	default:
 		return ""
 	}
