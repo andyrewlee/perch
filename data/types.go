@@ -43,15 +43,16 @@ type Agent struct {
 
 // Rig represents a project container with workers and infrastructure.
 type Rig struct {
-	Name         string  `json:"name"`
+	Name         string   `json:"name"`
 	Polecats     []string `json:"polecats"`
-	PolecatCount int     `json:"polecat_count"`
+	PolecatCount int      `json:"polecat_count"`
 	Crews        []string `json:"crews"`
-	CrewCount    int     `json:"crew_count"`
-	HasWitness   bool    `json:"has_witness"`
-	HasRefinery  bool    `json:"has_refinery"`
-	Hooks        []Hook  `json:"hooks"`
-	Agents       []Agent `json:"agents"`
+	CrewCount    int      `json:"crew_count"`
+	HasWitness   bool     `json:"has_witness"`
+	HasRefinery  bool     `json:"has_refinery"`
+	Hooks        []Hook   `json:"hooks"`
+	Agents       []Agent  `json:"agents"`
+	ActiveHooks  int      `json:"active_hooks"` // Computed from hooked issues for this rig
 }
 
 // Hook represents work hooked to an agent.

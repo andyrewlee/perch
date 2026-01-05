@@ -242,14 +242,10 @@ type rigItem struct {
 func (r rigItem) ID() string { return r.r.Name }
 func (r rigItem) Label() string {
 	// Show rig name with summary counts: polecats, active/total hooks
-	activeHooks := 0
-	for _, h := range r.r.Hooks {
-		if h.HasWork {
-			activeHooks++
-		}
-	}
+	// Use Rig.ActiveHooks which is computed from hooked issues for consistency
+	// with Summary.ActiveHooks
 	totalHooks := len(r.r.Hooks)
-	return fmt.Sprintf("%s (%dpol %d/%dhk)", r.r.Name, r.r.PolecatCount, activeHooks, totalHooks)
+	return fmt.Sprintf("%s (%dpol %d/%dhk)", r.r.Name, r.r.PolecatCount, r.r.ActiveHooks, totalHooks)
 }
 func (r rigItem) Status() string {
 	// Count running agents
@@ -2125,15 +2121,9 @@ func renderRigDetails(r rigItem, width int) string {
 	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.MergeQueue))
 	lines = append(lines, "")
 
-	// Hooks status
-	activeHooks := 0
-	for _, h := range r.r.Hooks {
-		if h.HasWork {
-			activeHooks++
-		}
-	}
+	// Hooks status - use Rig.ActiveHooks for consistency with summary
 	lines = append(lines, headerStyle.Render("Activity"))
-	lines = append(lines, fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), activeHooks))
+	lines = append(lines, fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), r.r.ActiveHooks))
 	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Hooks))
 
 	// Running agents in this rig

@@ -268,6 +268,7 @@ func TestRigItemLabel_ShowsPolecatsAndHooks(t *testing.T) {
 		r: data.Rig{
 			Name:         "perch",
 			PolecatCount: 12,
+			ActiveHooks:  1, // Set from EnrichWithHookedBeads (1 of 3 has work)
 			Hooks: []data.Hook{
 				{Agent: "polecat1", HasWork: true},
 				{Agent: "polecat2", HasWork: false},
@@ -284,6 +285,7 @@ func TestRigItemLabel_ShowsPolecatsAndHooks(t *testing.T) {
 	}
 
 	// Should show active/total hooks format (1 active of 3 total)
+	// ActiveHooks is now computed by EnrichWithHookedBeads, not counted from Hooks array
 	if !strings.Contains(label, "1/3hk") {
 		t.Errorf("expected label to contain '1/3hk' (active/total hooks), got: %s", label)
 	}
