@@ -369,7 +369,7 @@ func TestDeleteAction(t *testing.T) {
 func TestLogsAction(t *testing.T) {
 	t.Run("OpenLogs_Success", func(t *testing.T) {
 		m, mock := createTestModel(t)
-		mock.On([]string{"gt", "logs", "perch/polecats/able"}, []byte(""), nil, nil)
+		mock.On([]string{"gt", "log", "--agent", "perch/polecats/able", "-f"}, []byte(""), nil, nil)
 
 		// Set selected agent
 		m.selectedAgent = "perch/polecats/able"
@@ -392,8 +392,8 @@ func TestLogsAction(t *testing.T) {
 		msg := cmd()
 
 		// Verify mock
-		if !mock.CalledWith([]string{"gt", "logs", "perch/polecats/able"}) {
-			t.Error("expected gt logs to be called")
+		if !mock.CalledWith([]string{"gt", "log", "--agent", "perch/polecats/able", "-f"}) {
+			t.Error("expected gt log --agent to be called")
 		}
 
 		// Verify completion
@@ -424,7 +424,7 @@ func TestLogsAction(t *testing.T) {
 
 	t.Run("OpenLogs_Error", func(t *testing.T) {
 		m, mock := createTestModel(t)
-		mock.On([]string{"gt", "logs"}, nil, []byte("agent not found"), errors.New("exit status 1"))
+		mock.On([]string{"gt", "log"}, nil, []byte("agent not found"), errors.New("exit status 1"))
 		m.selectedAgent = "unknown/agent"
 
 		// Press 'o'
@@ -809,7 +809,7 @@ func TestActionRunnerCommands(t *testing.T) {
 		{
 			name:     "OpenLogs",
 			action:   func(r *ActionRunner) error { return r.OpenLogs(context.Background(), "perch/polecats/able") },
-			expected: []string{"gt", "logs", "perch/polecats/able"},
+			expected: []string{"gt", "log", "--agent", "perch/polecats/able", "-f"},
 		},
 		{
 			name:     "NudgeRefinery",
