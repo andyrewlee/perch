@@ -1081,8 +1081,20 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 
 // renderMQEmptyState renders the merge queue empty state with refinery context.
 // This helps beginners understand that an empty queue is normal and healthy.
+// When services are stopped (no deacon heartbeat, all agents stopped), show a special
+// "services stopped / stale" state with hints to start services - NOT "no refinery configured".
 func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool, width int) string {
 	var lines []string
+
+	// First check if services appear stopped - this takes priority over refinery status
+	// because when services are down, we can't accurately determine if refinery is configured
+	if servicesAppearStopped(snap) {
+		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+		if isActive {
+			lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+		}
+		return strings.Join(lines, "\n")
+	}
 
 	// Find refinery agents and their status
 	refineryRunning := false
@@ -1195,6 +1207,15 @@ func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *Sideba
 				errLine += mutedStyle.Render(" (stale: " + state.MQsLastRefresh.Format("15:04") + ")")
 			}
 			lines = append(lines, errLine)
+		}
+	}
+
+	// Check if services appear stopped (show stale marker on cached items)
+	// This handles the case where we have cached items but services are down
+	if state.MQsLoadError == nil && servicesAppearStopped(snap) && len(items) > 0 {
+		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+		if isActiveSection {
+			lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
 		}
 	}
 
