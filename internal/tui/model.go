@@ -2003,25 +2003,58 @@ func (m Model) buildAlerts() []string {
 		}
 	}
 
-	// Check for load errors - show which subsystems failed
+	// Check for load errors - show which subsystems failed or are stale
 	if len(m.snapshot.LoadErrors) > 0 && len(alerts) < maxAlerts {
-		// Collect unique failed sources
-		var sources []string
+		// Determine if services are paused (watchdog down) vs actual failures
+		servicesDown := m.snapshot.OperationalState != nil && !m.snapshot.OperationalState.WatchdogHealthy
+
+		// Collect unique sources with their last success time
+		type sourceInfo struct {
+			label       string
+			lastSuccess time.Time
+		}
+		var sources []sourceInfo
 		seen := make(map[string]bool)
 		for _, err := range m.snapshot.LoadErrors {
-			label := err.SourceLabel()
-			if !seen[label] {
-				sources = append(sources, label)
-				seen[label] = true
+			if !seen[err.Source] {
+				lastSuccess := m.snapshot.LastSuccess[err.Source]
+				sources = append(sources, sourceInfo{
+					label:       err.SourceLabel(),
+					lastSuccess: lastSuccess,
+				})
+				seen[err.Source] = true
 			}
 		}
-		// Show failed sources with hint to view details
-		sourceList := strings.Join(sources, ", ")
-		if len(sourceList) > 30 {
-			sourceList = sourceList[:27] + "..."
+
+		if servicesDown {
+			// Services paused - show stale state with last refresh times
+			var staleInfo []string
+			for _, src := range sources {
+				info := src.label
+				if !src.lastSuccess.IsZero() {
+					info += " " + src.lastSuccess.Format("15:04")
+				}
+				staleInfo = append(staleInfo, info)
+			}
+			staleList := strings.Join(staleInfo, ", ")
+			if len(staleList) > 40 {
+				staleList = staleList[:37] + "..."
+			}
+			alerts = append(alerts, stoppedStyle.Render("◌")+
+				fmt.Sprintf(" Data stale: %s", staleList))
+		} else {
+			// Actual failures - show error state
+			var labels []string
+			for _, src := range sources {
+				labels = append(labels, src.label)
+			}
+			sourceList := strings.Join(labels, ", ")
+			if len(sourceList) > 30 {
+				sourceList = sourceList[:27] + "..."
+			}
+			alerts = append(alerts, statusErrorStyle.Render("●")+
+				fmt.Sprintf(" %s failed (press 8 for details)", sourceList))
 		}
-		alerts = append(alerts, statusErrorStyle.Render("●")+
-			fmt.Sprintf(" %s failed (press 8 for details)", sourceList))
 	}
 
 	return alerts
