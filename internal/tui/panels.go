@@ -462,6 +462,12 @@ type SidebarState struct {
 	MQsLoadError   error     // Error from last MQ load attempt (nil if successful)
 	MQsLoading     bool      // True during initial load
 
+	// Loading/error state for beads panel
+	BeadsLastRefresh time.Time // Last successful beads data refresh
+	BeadsLoadError   error     // Error from last beads load attempt (nil if successful)
+	BeadsLoading     bool      // True during initial load
+	BeadsTotalCount  int       // Total issues before filtering (to detect filtered state)
+
 	// LastSuccess tracks the last successful refresh time
 	LastSuccess time.Time
 }
@@ -474,6 +480,7 @@ func NewSidebarState() *SidebarState {
 		AgentsLoading:  true, // Start in loading state until first successful refresh
 		ConvoysLoading: true, // Start in loading state until first successful refresh
 		MQsLoading:     true, // Start in loading state until first successful refresh
+		BeadsLoading:   true, // Start in loading state until first successful refresh
 	}
 }
 
@@ -719,15 +726,37 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Alerts[i] = alertItem{err}
 	}
 
-	// Update beads (filtered by scope)
-	s.Beads = nil
-	for _, issue := range snap.Issues {
-		isTownIssue := strings.HasPrefix(issue.ID, "hq-")
-		if s.BeadsScope == BeadsScopeTown && isTownIssue {
-			s.Beads = append(s.Beads, beadItem{issue})
-		} else if s.BeadsScope == BeadsScopeRig && !isTownIssue {
-			s.Beads = append(s.Beads, beadItem{issue})
+	// Update beads with loading/error tracking
+	// Filter by scope AND exclude closed issues (show only open, in_progress, hooked)
+	if snap.Issues != nil {
+		s.Beads = nil
+		s.BeadsTotalCount = 0
+		for _, issue := range snap.Issues {
+			isTownIssue := strings.HasPrefix(issue.ID, "hq-")
+			scopeMatches := (s.BeadsScope == BeadsScopeTown && isTownIssue) ||
+				(s.BeadsScope == BeadsScopeRig && !isTownIssue)
+
+			if scopeMatches {
+				s.BeadsTotalCount++
+				// Only show non-closed issues (open, in_progress, hooked)
+				if issue.Status != "closed" {
+					s.Beads = append(s.Beads, beadItem{issue})
+				}
+			}
 		}
+		s.BeadsLastRefresh = snap.LoadedAt
+		s.BeadsLoadError = nil
+		s.BeadsLoading = false
+	} else {
+		// Issues failed to load - find the error if any
+		s.BeadsLoading = false
+		for _, loadErr := range snap.LoadErrors {
+			if loadErr.Source == "issues" {
+				s.BeadsLoadError = errors.New(loadErr.Error)
+				break
+			}
+		}
+		// Preserve s.Beads (last-known value) - don't clear it
 	}
 
 	// Clamp selection to valid range
@@ -915,11 +944,18 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			headerText = fmt.Sprintf("Alerts (%d)", len(state.Alerts))
 		}
 		// For beads, show scope toggle state [R]ig or [T]own
+		// Also show filter badge if closed issues are hidden
 		if sec == SectionBeads {
+			scopeBadge := "R"
 			if state.BeadsScope == BeadsScopeTown {
-				headerText = fmt.Sprintf("Beads [T] (%d)", len(state.Beads))
+				scopeBadge = "T"
+			}
+			// Show filter indicator if there are closed issues being filtered
+			closedCount := state.BeadsTotalCount - len(state.Beads)
+			if closedCount > 0 {
+				headerText = fmt.Sprintf("Beads [%s] (%d+%dc)", scopeBadge, len(state.Beads), closedCount)
 			} else {
-				headerText = fmt.Sprintf("Beads [R] (%d)", len(state.Beads))
+				headerText = fmt.Sprintf("Beads [%s] (%d)", scopeBadge, len(state.Beads))
 			}
 		}
 		header := renderSectionHeader(headerText, sec, isActive, state)
@@ -938,9 +974,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionAlerts && len(items) == 0 {
 			// Special empty state for alerts
 			list = renderAlertsEmptyState(isActive)
-		} else if sec == SectionBeads && len(items) == 0 {
-			// Special empty state for beads
-			list = renderBeadsEmptyState(state, isActive)
+		} else if sec == SectionBeads {
+			// Special handling for beads section with loading/error states
+			list = renderBeadsList(state, items, isActive, innerWidth, sectionHeight)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -1476,14 +1512,88 @@ func renderAlertsEmptyState(isActive bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderBeadsEmptyState renders the empty state for the beads section.
-func renderBeadsEmptyState(state *SidebarState, isActive bool) string {
+// renderBeadsList renders the beads list with loading/error state indicators.
+// Shows open issues (excludes closed), and explains when issues are filtered or stale.
+func renderBeadsList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
 	var lines []string
+
+	// Show loading indicator during initial load
+	if state.BeadsLoading {
+		lines = append(lines, mutedStyle.Render("  Loading issues..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if beads failed to load (but still show last-known items)
+	hasError := state.BeadsLoadError != nil
+	if hasError {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.BeadsLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (stale: " + state.BeadsLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+	}
+
+	// If no items, show appropriate empty state
+	if len(items) == 0 {
+		emptyState := renderBeadsEmptyState(state, isActiveSection, hasError)
+		// Prepend error banner if present
+		if hasError {
+			return strings.Join(lines, "\n") + "\n" + emptyState
+		}
+		return emptyState
+	}
+
+	// Calculate remaining lines for bead list (accounting for error banner if present)
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render bead items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderBeadsEmptyState renders the empty state for the beads section.
+// hasError indicates if we're showing this after an error banner.
+func renderBeadsEmptyState(state *SidebarState, isActive bool, hasError bool) string {
+	var lines []string
+
 	scopeLabel := "rig"
 	if state.BeadsScope == BeadsScopeTown {
 		scopeLabel = "town"
 	}
-	lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No %s-level issues", scopeLabel)))
+
+	// Check if there are issues but they're all closed
+	closedCount := state.BeadsTotalCount - len(state.Beads)
+	if closedCount > 0 && len(state.Beads) == 0 {
+		// All issues in this scope are closed
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No open %s issues", scopeLabel)))
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("  (%d closed)", closedCount)))
+	} else if hasError {
+		// No cached items after an error
+		lines = append(lines, mutedStyle.Render("  (no cached issues)"))
+	} else {
+		// Genuinely no issues in this scope
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No %s-level issues", scopeLabel)))
+	}
+
 	if isActive {
 		lines = append(lines, mutedStyle.Render("  Press 's' to switch scope"))
 		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
