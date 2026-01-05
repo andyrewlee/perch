@@ -39,7 +39,9 @@ const (
 	ActionNudgeAgent
 	ActionMailAgent
 	ActionTogglePlugin
-	ActionOpenSession // Attach to agent's tmux session (advanced)
+	ActionOpenSession    // Attach to agent's tmux session (advanced)
+	ActionRestartSession // Restart agent's session
+	ActionPresetNudge    // Nudge with preset message
 )
 
 // Action represents a user-triggered action with its result.
@@ -110,9 +112,9 @@ func (r *ActionRunner) DeleteRig(ctx context.Context, rig string) error {
 }
 
 // OpenLogs opens logs for an agent.
-// Runs: gt logs <agent-address>
+// Runs: gt log --agent <agent-address> -f
 func (r *ActionRunner) OpenLogs(ctx context.Context, agentAddress string) error {
-	return r.runCommand(ctx, "gt", "logs", agentAddress)
+	return r.runCommand(ctx, "gt", "log", "--agent", agentAddress, "-f")
 }
 
 // AddRig adds a new rig by cloning a repository.
@@ -268,6 +270,18 @@ func (r *ActionRunner) MailAgent(ctx context.Context, agentAddress, subject, mes
 	return r.runCommand(ctx, "gt", "mail", "send", agentAddress, "-s", subject, "-m", message)
 }
 
+// AttachSession attaches to an agent's tmux session.
+// Runs: gt session at <agent-address>
+func (r *ActionRunner) AttachSession(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "session", "at", agentAddress)
+}
+
+// RestartSession restarts an agent's session.
+// Runs: gt session restart <agent-address>
+func (r *ActionRunner) RestartSession(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "session", "restart", agentAddress)
+}
+
 // TogglePlugin enables or disables a plugin by creating/removing a .disabled marker file.
 // pluginPath is the full path to the plugin directory.
 func (r *ActionRunner) TogglePlugin(ctx context.Context, pluginPath string) error {
@@ -338,17 +352,39 @@ type InputDialog struct {
 	Prompt      string
 	Action      ActionType
 	Target      string
-	Input       string      // Current text input
-	ExtraInput  string      // Second input field (e.g., message body for mail)
-	ExtraPrompt string      // Prompt for second field
-	Field       int         // 0 = first field, 1 = second field
+	Input       string // Current text input
+	ExtraInput  string // Second input field (e.g., message body for mail)
+	ExtraPrompt string // Prompt for second field
+	Field       int    // 0 = first field, 1 = second field
+}
+
+// PresetNudge represents a preset nudge message option.
+type PresetNudge struct {
+	Label   string // Short display label
+	Message string // Full nudge message
+}
+
+// PresetNudges contains the available preset nudge options.
+var PresetNudges = []PresetNudge{
+	{"Check mail", "Check your mail and respond to any pending items."},
+	{"Status update", "Please provide a status update on your current work."},
+	{"Resume work", "Resume working on your hooked task."},
+	{"Wrap up", "Please wrap up your current task and prepare for handoff."},
+	{"Custom...", ""}, // Empty message signals custom input
+}
+
+// PresetNudgeMenu represents the preset nudge selection menu.
+type PresetNudgeMenu struct {
+	Target    string
+	Selection int
 }
 
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
 	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery,
-		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree, ActionStopAgent:
+		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree,
+		ActionStopAgent, ActionRestartSession:
 		return true
 	default:
 		return false

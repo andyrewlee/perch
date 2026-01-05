@@ -2071,7 +2071,7 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 
 	// Action hints
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("Actions: o=logs S=sling H=handoff K=kill n=nudge m=mail"))
+	lines = append(lines, mutedStyle.Render("Actions: n=nudge t=attach o=logs R=restart K=kill m=mail S=sling H=handoff"))
 
 	return strings.Join(lines, "\n")
 }
