@@ -876,6 +876,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "-":
+		// Operator console (subsystem health)
+		if m.focus == PanelSidebar {
+			m.sidebar.Section = SectionOperator
+			m.sidebar.Selection = 0
+		}
+		return m, nil
+
 	case "e":
 		// Edit rig settings (only when in Rigs section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionRigs {
@@ -2274,6 +2282,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("h/l") + "        Panel left/right, section switch",
 		helpKeyStyle.Render("j/k") + "        Navigate up/down",
 		helpKeyStyle.Render("0-9") + "        Jump to section (0=Identity...9=Alerts)",
+		helpKeyStyle.Render("-") + "          Operator console (system health)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
 		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",
