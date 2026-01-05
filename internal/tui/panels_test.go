@@ -64,13 +64,16 @@ func TestRenderMQEmptyState_NoRefinery(t *testing.T) {
 }
 
 func TestRenderMQEmptyState_NilSnapshot(t *testing.T) {
+	// Nil snapshot indicates services are stopped (can't determine refinery status)
+	// Should show "Services stopped / stale" indicator
 	result := renderMQEmptyState(nil, nil, false, 40)
 
-	if !strings.Contains(result, "Refinery not configured") {
-		t.Errorf("expected 'Refinery not configured' in output for nil snapshot, got: %s", result)
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' in output for nil snapshot, got: %s", result)
 	}
-	if !strings.Contains(result, "Queue clear") {
-		t.Errorf("expected 'Queue clear' hint in output, got: %s", result)
+	// Services stopped state does NOT show "Queue clear" hint
+	if strings.Contains(result, "Queue clear") {
+		t.Errorf("expected NO 'Queue clear' hint for nil snapshot (services stopped), got: %s", result)
 	}
 }
 
@@ -100,30 +103,163 @@ func TestRenderMQEmptyState_WithLastMergeTime(t *testing.T) {
 }
 
 func TestRenderMQEmptyState_ActiveShowsHint(t *testing.T) {
-	result := renderMQEmptyState(nil, nil, true, 40)
+	// With valid snapshot (services running), active section should show "gt done" hint
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+	result := renderMQEmptyState(snap, nil, true, 40)
 
 	if !strings.Contains(result, "gt done") {
 		t.Errorf("expected 'gt done' hint when section is active, got: %s", result)
 	}
 }
 
+func TestRenderMQEmptyState_ServicesStoppedShowsBootHint(t *testing.T) {
+	// Nil snapshot indicates services stopped, active section should show "gt boot" hint
+	result := renderMQEmptyState(nil, nil, true, 40)
+
+	if !strings.Contains(result, "gt boot") {
+		t.Errorf("expected 'gt boot' hint when services stopped and section is active, got: %s", result)
+	}
+}
+
 func TestRenderMQEmptyState_InactiveNoHint(t *testing.T) {
-	result := renderMQEmptyState(nil, nil, false, 40)
+	// With valid snapshot (services running), inactive section should NOT show "gt done" hint
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+	result := renderMQEmptyState(snap, nil, false, 40)
 
 	if strings.Contains(result, "gt done") {
 		t.Errorf("expected no 'gt done' hint when section is inactive, got: %s", result)
 	}
 }
 
+func TestRenderMQEmptyState_RefineryStoppedShowsStartHint(t *testing.T) {
+	// When refinery is stopped (but services are running), show action to start refinery
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: false},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+	result := renderMQEmptyState(snap, nil, true, 40)
+
+	if !strings.Contains(result, "Refinery stopped") {
+		t.Errorf("expected 'Refinery stopped' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "press 'b' to boot") {
+		t.Errorf("expected 'press 'b' to boot' hint when refinery stopped and section is active, got: %s", result)
+	}
+}
+
+func TestRenderMQEmptyState_RefineryStoppedInactiveNoStartHint(t *testing.T) {
+	// When refinery is stopped but section is inactive, don't show start hint
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: false},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+	result := renderMQEmptyState(snap, nil, false, 40)
+
+	if !strings.Contains(result, "Refinery stopped") {
+		t.Errorf("expected 'Refinery stopped' in output, got: %s", result)
+	}
+	if strings.Contains(result, "gt agent start") {
+		t.Errorf("expected NO 'gt agent start' hint when section is inactive, got: %s", result)
+	}
+}
+
 func TestRenderMQEmptyState_ZeroLastMergeTime(t *testing.T) {
+	// With valid snapshot (services running), zero last merge time should not show "Last merge:"
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
 	opts := &SidebarOptions{
 		LastMergeTime: time.Time{}, // Zero time
 	}
-	result := renderMQEmptyState(nil, opts, false, 40)
+	result := renderMQEmptyState(snap, opts, false, 40)
 
 	// Should not show last merge time for zero time
 	if strings.Contains(result, "Last merge:") {
 		t.Errorf("expected no 'Last merge:' when time is zero, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_CachedItemsServicesStoppedShowsStaleHeader(t *testing.T) {
+	// When services are stopped but we have cached MR items, show stale header
+	state := &SidebarState{
+		MRs:            []mrItem{{mr: data.MergeRequest{ID: "mr-1", Title: "Test MR"}, rig: "perch"}},
+		MQsLastRefresh: time.Now().Add(-10 * time.Minute),
+		MQsLoadError:   nil,
+		MQsLoading:     false,
+	}
+	// Nil snapshot indicates services stopped
+	snap := (*data.Snapshot)(nil)
+	items := []SelectableItem{state.MRs[0]}
+
+	result := renderMergeQueueList(state, snap, nil, items, true, 40, 10)
+
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' header for cached items when services down, got: %s", result)
+	}
+	if !strings.Contains(result, "gt boot") {
+		t.Errorf("expected 'gt boot' hint when services stopped and section is active, got: %s", result)
+	}
+	// Should still show the cached MR item
+	if !strings.Contains(result, "Test MR") {
+		t.Errorf("expected cached MR 'Test MR' in output, got: %s", result)
+	}
+}
+
+func TestRenderMergeQueueList_CachedItemsServicesStoppedInactiveNoBootHint(t *testing.T) {
+	// When services are stopped but section is inactive, don't show boot hint
+	state := &SidebarState{
+		MRs:            []mrItem{{mr: data.MergeRequest{ID: "mr-1", Title: "Test MR"}, rig: "perch"}},
+		MQsLastRefresh: time.Now().Add(-10 * time.Minute),
+		MQsLoadError:   nil,
+		MQsLoading:     false,
+	}
+	snap := (*data.Snapshot)(nil)
+	items := []SelectableItem{state.MRs[0]}
+
+	result := renderMergeQueueList(state, snap, nil, items, false, 40, 10)
+
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' header, got: %s", result)
+	}
+	if strings.Contains(result, "gt boot") {
+		t.Errorf("expected NO 'gt boot' hint when section is inactive, got: %s", result)
 	}
 }
 
