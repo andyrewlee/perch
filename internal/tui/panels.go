@@ -830,7 +830,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			list = renderMergeQueueList(state, snap, opts, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAgents {
 			// Special handling for agents section with loading/error states
-			list = renderAgentsList(state, items, isActive, innerWidth, sectionHeight)
+			list = renderAgentsList(state, snap, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
 			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
@@ -1108,7 +1108,9 @@ func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *Sideba
 // renderAgentsList renders the agents list with loading/error state indicators.
 // Per acceptance criteria: always show last-known agents; if loading, show explicit
 // loading state; if error, show error + last refresh time.
-func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+// When services are stopped (no deacon heartbeat, all agents stopped), show a special
+// "services stopped / stale" state with hints to start services.
+func renderAgentsList(state *SidebarState, snap *data.Snapshot, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
 	var lines []string
 
 	// Show loading indicator during initial load
@@ -1126,14 +1128,32 @@ func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSecti
 		lines = append(lines, errLine)
 	}
 
-	// Show last-known agents (or empty state if none)
+	// Show last-known agents (or empty/stopped state if none)
 	if len(items) == 0 {
 		if state.AgentsLoadError != nil {
 			lines = append(lines, mutedStyle.Render("  (no cached agents)"))
 		} else {
-			lines = append(lines, mutedStyle.Render("  (empty)"))
+			// Check if services appear stopped (no agents registered or watchdog unhealthy)
+			servicesStopped := servicesAppearStopped(snap)
+			if servicesStopped {
+				lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+				if isActiveSection {
+					lines = append(lines, mutedStyle.Render("  Start deacon/witness/refinery"))
+					lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+				}
+			} else {
+				lines = append(lines, mutedStyle.Render("  (empty)"))
+			}
 		}
 		return strings.Join(lines, "\n")
+	}
+
+	// Check if all agents are stopped (services not running)
+	if allAgentsStopped(state.Agents) {
+		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+		if isActiveSection {
+			lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+		}
 	}
 
 	// Calculate remaining lines for agent list
@@ -1161,6 +1181,48 @@ func renderAgentsList(state *SidebarState, items []SelectableItem, isActiveSecti
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// servicesAppearStopped checks if Gas Town services appear to be stopped.
+// This is determined by:
+// 1. No snapshot available
+// 2. No town data in snapshot
+// 3. Watchdog unhealthy (deacon not running)
+// 4. No recent deacon heartbeat
+func servicesAppearStopped(snap *data.Snapshot) bool {
+	if snap == nil {
+		return true
+	}
+	if snap.Town == nil {
+		return true
+	}
+	// Check operational state for watchdog health
+	if snap.OperationalState != nil {
+		// If watchdog is unhealthy, services are stopped
+		if !snap.OperationalState.WatchdogHealthy {
+			return true
+		}
+		// If no recent deacon heartbeat (> 5 minutes), consider stopped
+		if !snap.OperationalState.LastDeaconHeartbeat.IsZero() {
+			if time.Since(snap.OperationalState.LastDeaconHeartbeat) > 5*time.Minute {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// allAgentsStopped checks if all agents in the list are stopped (not running).
+func allAgentsStopped(agents []agentItem) bool {
+	if len(agents) == 0 {
+		return false // No agents to check
+	}
+	for _, a := range agents {
+		if a.a.Running {
+			return false // At least one agent is running
+		}
+	}
+	return true // All agents are stopped
 }
 
 // renderConvoysList renders the convoys list with loading/error state indicators.

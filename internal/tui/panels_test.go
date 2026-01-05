@@ -178,7 +178,7 @@ func TestAgentsPanelShowsLoadingState(t *testing.T) {
 	}
 
 	// Render with empty items while loading
-	result := renderAgentsList(state, nil, true, 40, 5)
+	result := renderAgentsList(state, nil, nil, true, 40, 5)
 	if !strings.Contains(result, "Loading") {
 		t.Errorf("expected 'Loading' in output during loading state, got: %s", result)
 	}
@@ -236,7 +236,7 @@ func TestAgentsPanelShowsErrorState(t *testing.T) {
 	state.AgentsLastRefresh = time.Now().Add(-5 * time.Minute)
 
 	// With no cached agents
-	result := renderAgentsList(state, nil, true, 40, 5)
+	result := renderAgentsList(state, nil, nil, true, 40, 5)
 	if !strings.Contains(result, "Load error") {
 		t.Errorf("expected 'Load error' in output, got: %s", result)
 	}
@@ -259,7 +259,15 @@ func TestAgentsPanelShowsAgentsWithError(t *testing.T) {
 		items[i] = a
 	}
 
-	result := renderAgentsList(state, items, true, 40, 10)
+	// Create a healthy snapshot for the test
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderAgentsList(state, snap, items, true, 40, 10)
 
 	// Should show error indicator
 	if !strings.Contains(result, "Load error") {
@@ -286,7 +294,15 @@ func TestAgentsPanelNormalState(t *testing.T) {
 		items[i] = a
 	}
 
-	result := renderAgentsList(state, items, true, 40, 10)
+	// Create a healthy snapshot for the test
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderAgentsList(state, snap, items, true, 40, 10)
 
 	// Should NOT show error or loading
 	if strings.Contains(result, "Load error") {
@@ -294,6 +310,181 @@ func TestAgentsPanelNormalState(t *testing.T) {
 	}
 	if strings.Contains(result, "Loading") {
 		t.Errorf("should not show 'Loading' in normal state, got: %s", result)
+	}
+}
+
+func TestAgentsPanelShowsServicesStoppedState(t *testing.T) {
+	state := NewSidebarState()
+	state.AgentsLoading = false
+	state.AgentsLoadError = nil
+
+	// Create a snapshot with unhealthy watchdog (services stopped)
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: false, // Services are stopped
+		},
+	}
+
+	// No agents loaded (empty list)
+	result := renderAgentsList(state, snap, nil, true, 40, 10)
+
+	// Should show services stopped message
+	if !strings.Contains(result, "stopped") {
+		t.Errorf("expected 'stopped' in output when services are stopped, got: %s", result)
+	}
+	// Should show hint to start services (when section is active)
+	if !strings.Contains(result, "boot") {
+		t.Errorf("expected boot hint in output when services are stopped, got: %s", result)
+	}
+}
+
+func TestAgentsPanelShowsAllAgentsStopped(t *testing.T) {
+	state := NewSidebarState()
+	state.AgentsLoading = false
+	state.AgentsLoadError = nil
+	// All agents are stopped (Running: false)
+	state.Agents = []agentItem{
+		{a: data.Agent{Name: "witness", Address: "perch/witness", Running: false}},
+		{a: data.Agent{Name: "refinery", Address: "perch/refinery", Running: false}},
+	}
+
+	items := make([]SelectableItem, len(state.Agents))
+	for i, a := range state.Agents {
+		items[i] = a
+	}
+
+	// Create a healthy snapshot (town exists)
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderAgentsList(state, snap, items, true, 40, 15)
+
+	// Should show services stopped banner
+	if !strings.Contains(result, "stopped") {
+		t.Errorf("expected 'stopped' banner when all agents are stopped, got: %s", result)
+	}
+	// Should still show the agents
+	if !strings.Contains(result, "witness") {
+		t.Errorf("expected 'witness' agent in output, got: %s", result)
+	}
+}
+
+func TestServicesAppearStopped(t *testing.T) {
+	tests := []struct {
+		name     string
+		snap     *data.Snapshot
+		expected bool
+	}{
+		{
+			name:     "nil snapshot",
+			snap:     nil,
+			expected: true,
+		},
+		{
+			name:     "nil town",
+			snap:     &data.Snapshot{Town: nil},
+			expected: true,
+		},
+		{
+			name: "unhealthy watchdog",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{},
+				OperationalState: &data.OperationalState{
+					WatchdogHealthy: false,
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "stale deacon heartbeat",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{},
+				OperationalState: &data.OperationalState{
+					WatchdogHealthy:     true,
+					LastDeaconHeartbeat: time.Now().Add(-10 * time.Minute), // > 5 min ago
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "healthy services",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{},
+				OperationalState: &data.OperationalState{
+					WatchdogHealthy:     true,
+					LastDeaconHeartbeat: time.Now().Add(-1 * time.Minute), // Recent
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "no operational state (legacy)",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := servicesAppearStopped(tc.snap)
+			if result != tc.expected {
+				t.Errorf("servicesAppearStopped() = %v, want %v", result, tc.expected)
+			}
+		})
+	}
+}
+
+func TestAllAgentsStopped(t *testing.T) {
+	tests := []struct {
+		name     string
+		agents   []agentItem
+		expected bool
+	}{
+		{
+			name:     "empty list",
+			agents:   nil,
+			expected: false,
+		},
+		{
+			name: "all stopped",
+			agents: []agentItem{
+				{a: data.Agent{Running: false}},
+				{a: data.Agent{Running: false}},
+			},
+			expected: true,
+		},
+		{
+			name: "one running",
+			agents: []agentItem{
+				{a: data.Agent{Running: false}},
+				{a: data.Agent{Running: true}},
+			},
+			expected: false,
+		},
+		{
+			name: "all running",
+			agents: []agentItem{
+				{a: data.Agent{Running: true}},
+				{a: data.Agent{Running: true}},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := allAgentsStopped(tc.agents)
+			if result != tc.expected {
+				t.Errorf("allAgentsStopped() = %v, want %v", result, tc.expected)
+			}
+		})
 	}
 }
 
