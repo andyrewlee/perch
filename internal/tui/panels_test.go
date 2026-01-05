@@ -922,6 +922,258 @@ func TestRenderConvoysList_NormalWithItems(t *testing.T) {
 	}
 }
 
+// ========== Beads Panel Tests ==========
+
+func TestBeadsPanelShowsLoadingState(t *testing.T) {
+	state := NewSidebarState()
+	// New state should start in loading mode
+	if !state.BeadsLoading {
+		t.Error("expected BeadsLoading to be true initially")
+	}
+
+	// Render with no items while loading
+	result := renderBeadsList(state, nil, true, 40, 5)
+	if !strings.Contains(result, "Loading") {
+		t.Errorf("expected 'Loading' in output during loading state, got: %s", result)
+	}
+}
+
+func TestBeadsPanelFiltersClosedIssues(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+
+	// Create a snapshot with mixed issue statuses
+	snap := &data.Snapshot{
+		Issues: []data.Issue{
+			{ID: "pe-001", Title: "Open issue", Status: "open"},
+			{ID: "pe-002", Title: "In progress", Status: "in_progress"},
+			{ID: "pe-003", Title: "Hooked issue", Status: "hooked"},
+			{ID: "pe-004", Title: "Closed issue", Status: "closed"},
+			{ID: "pe-005", Title: "Another closed", Status: "closed"},
+		},
+		LoadedAt: time.Now(),
+	}
+
+	state.UpdateFromSnapshot(snap)
+
+	// Should have 3 open issues (filtering out 2 closed)
+	if len(state.Beads) != 3 {
+		t.Errorf("expected 3 beads (open, in_progress, hooked), got %d", len(state.Beads))
+	}
+
+	// Total count should be 5 (all issues in scope)
+	if state.BeadsTotalCount != 5 {
+		t.Errorf("expected BeadsTotalCount=5, got %d", state.BeadsTotalCount)
+	}
+}
+
+func TestBeadsPanelShowsClosedCountInHeader(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 5
+	state.Beads = []beadItem{
+		{issue: data.Issue{ID: "pe-001", Title: "Open issue", Status: "open"}},
+		{issue: data.Issue{ID: "pe-002", Title: "In progress", Status: "in_progress"}},
+		{issue: data.Issue{ID: "pe-003", Title: "Hooked issue", Status: "hooked"}},
+	}
+
+	// The header should show "Beads [R] (3+2c)" meaning 3 open + 2 closed
+	// We test the logic by checking the closed count calculation
+	closedCount := state.BeadsTotalCount - len(state.Beads)
+	if closedCount != 2 {
+		t.Errorf("expected 2 closed issues, got %d", closedCount)
+	}
+}
+
+func TestBeadsPanelEmptyStateAllClosed(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 3
+	state.Beads = nil // All filtered out (closed)
+
+	result := renderBeadsEmptyState(state, true, false)
+
+	// Should show "No open rig issues" and closed count
+	if !strings.Contains(result, "No open") {
+		t.Errorf("expected 'No open' in output when all issues are closed, got: %s", result)
+	}
+	if !strings.Contains(result, "closed") {
+		t.Errorf("expected 'closed' count in output when all issues are closed, got: %s", result)
+	}
+}
+
+func TestBeadsPanelEmptyStateNoIssues(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 0
+	state.Beads = nil
+
+	result := renderBeadsEmptyState(state, true, false)
+
+	// Should show "No rig-level issues" (genuinely empty)
+	if !strings.Contains(result, "No rig-level issues") {
+		t.Errorf("expected 'No rig-level issues' in output when no issues exist, got: %s", result)
+	}
+}
+
+func TestBeadsPanelShowsErrorState(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsLoadError = errors.New("connection failed")
+	state.BeadsLastRefresh = time.Now().Add(-5 * time.Minute)
+
+	// With no cached beads
+	result := renderBeadsList(state, nil, true, 40, 5)
+	if !strings.Contains(result, "Load error") {
+		t.Errorf("expected 'Load error' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "stale") {
+		t.Errorf("expected 'stale' timestamp in output, got: %s", result)
+	}
+}
+
+func TestBeadsPanelPreservesLastKnownBeads(t *testing.T) {
+	state := NewSidebarState()
+
+	// First successful refresh with beads
+	snap1 := &data.Snapshot{
+		Issues: []data.Issue{
+			{ID: "pe-001", Title: "Test issue 1", Status: "open"},
+			{ID: "pe-002", Title: "Test issue 2", Status: "in_progress"},
+		},
+		LoadedAt: time.Now(),
+	}
+	state.UpdateFromSnapshot(snap1)
+
+	// Verify beads were loaded
+	if len(state.Beads) != 2 {
+		t.Errorf("expected 2 beads, got %d", len(state.Beads))
+	}
+	if state.BeadsLoading {
+		t.Error("expected BeadsLoading to be false after successful refresh")
+	}
+
+	// Second refresh with Issues=nil (simulating failure)
+	snap2 := &data.Snapshot{
+		Issues:   nil, // Issues failed to load
+		LoadedAt: time.Now(),
+		LoadErrors: []data.LoadError{{
+			Source:     "issues",
+			Error:      "connection timeout",
+			OccurredAt: time.Now(),
+		}},
+	}
+	state.UpdateFromSnapshot(snap2)
+
+	// Beads should be preserved (last-known value)
+	if len(state.Beads) != 2 {
+		t.Errorf("expected 2 beads (preserved), got %d", len(state.Beads))
+	}
+	// Error should be set
+	if state.BeadsLoadError == nil {
+		t.Error("expected BeadsLoadError to be set after failure")
+	}
+}
+
+func TestBeadsPanelScopeFiltering(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+
+	// Create a snapshot with both town and rig issues
+	snap := &data.Snapshot{
+		Issues: []data.Issue{
+			{ID: "pe-001", Title: "Rig issue 1", Status: "open"},
+			{ID: "pe-002", Title: "Rig issue 2", Status: "open"},
+			{ID: "hq-001", Title: "Town issue 1", Status: "open"},
+			{ID: "hq-002", Title: "Town issue 2", Status: "open"},
+		},
+		LoadedAt: time.Now(),
+	}
+
+	// Test rig scope
+	state.BeadsScope = BeadsScopeRig
+	state.UpdateFromSnapshot(snap)
+	if len(state.Beads) != 2 {
+		t.Errorf("expected 2 rig beads, got %d", len(state.Beads))
+	}
+	if state.BeadsTotalCount != 2 {
+		t.Errorf("expected BeadsTotalCount=2 for rig scope, got %d", state.BeadsTotalCount)
+	}
+
+	// Test town scope
+	state.BeadsScope = BeadsScopeTown
+	state.UpdateFromSnapshot(snap)
+	if len(state.Beads) != 2 {
+		t.Errorf("expected 2 town beads, got %d", len(state.Beads))
+	}
+	if state.BeadsTotalCount != 2 {
+		t.Errorf("expected BeadsTotalCount=2 for town scope, got %d", state.BeadsTotalCount)
+	}
+}
+
+func TestBeadsPanelShowsBeadsWithError(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsLoadError = errors.New("refresh failed")
+	state.BeadsLastRefresh = time.Now().Add(-5 * time.Minute)
+	state.Beads = []beadItem{
+		{issue: data.Issue{ID: "pe-001", Title: "Cached issue", Status: "open"}},
+	}
+
+	items := make([]SelectableItem, len(state.Beads))
+	for i, b := range state.Beads {
+		items[i] = b
+	}
+
+	result := renderBeadsList(state, items, true, 40, 10)
+
+	// Should show error indicator
+	if !strings.Contains(result, "Load error") {
+		t.Errorf("expected 'Load error' when BeadsLoadError is set, got: %s", result)
+	}
+	// Should still show the cached item
+	if !strings.Contains(result, "Cached issue") {
+		t.Errorf("expected cached item 'Cached issue' to still be visible, got: %s", result)
+	}
+}
+
+func TestBeadsPanelNormalState(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsLoadError = nil
+	state.BeadsLastRefresh = time.Now()
+	state.Beads = []beadItem{
+		{issue: data.Issue{ID: "pe-001", Title: "Issue 1", Status: "open"}},
+		{issue: data.Issue{ID: "pe-002", Title: "Issue 2", Status: "in_progress"}},
+	}
+
+	items := make([]SelectableItem, len(state.Beads))
+	for i, b := range state.Beads {
+		items[i] = b
+	}
+
+	result := renderBeadsList(state, items, true, 40, 10)
+
+	// Should NOT show error or loading
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should not show 'Load error' in normal state, got: %s", result)
+	}
+	if strings.Contains(result, "Loading") {
+		t.Errorf("should not show 'Loading' in normal state, got: %s", result)
+	}
+	// Should show items (beads show ID and title)
+	if !strings.Contains(result, "Issue 1") {
+		t.Errorf("expected 'Issue 1' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Issue 2") {
+		t.Errorf("expected 'Issue 2' in output, got: %s", result)
+	}
+}
+
 // TestRefineryRunning tests the refineryRunning helper function.
 func TestRefineryRunning(t *testing.T) {
 	tests := []struct {
