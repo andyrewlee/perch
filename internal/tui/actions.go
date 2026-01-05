@@ -281,6 +281,13 @@ func (r *ActionRunner) TogglePlugin(ctx context.Context, pluginPath string) erro
 	return os.Remove(disabledPath)
 }
 
+// OpenSession attaches to an agent's underlying tmux session.
+// This is an advanced action for power users who need direct session access.
+// Runs: gt session attach <agent-address>
+func (r *ActionRunner) OpenSession(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "session", "attach", agentAddress)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
