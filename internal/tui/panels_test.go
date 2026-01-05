@@ -513,11 +513,24 @@ func TestRenderMergeQueueList_ErrorWithCachedItems(t *testing.T) {
 		items[i] = m
 	}
 
-	result := renderMergeQueueList(state, nil, nil, items, false, 40, 10)
+	// Pass a healthy snapshot (services running) so we get "Load error" not "Services stopped"
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy:     true,
+			LastDeaconHeartbeat: time.Now(),
+		},
+	}
 
-	// Should show error banner
+	result := renderMergeQueueList(state, snap, nil, items, false, 40, 10)
+
+	// Should show error banner (not "Services stopped" since services are running)
 	if !strings.Contains(result, "Load error") {
-		t.Errorf("expected 'Load error' when MQsLoadError is set, got: %s", result)
+		t.Errorf("expected 'Load error' when MQsLoadError is set and services running, got: %s", result)
 	}
 	// Should show stale indicator
 	if !strings.Contains(result, "stale") {
@@ -534,7 +547,20 @@ func TestRenderMergeQueueList_ErrorWithoutCachedItems(t *testing.T) {
 	state.MQsLoading = false
 	state.MQsLoadError = errors.New("test error")
 
-	result := renderMergeQueueList(state, nil, nil, nil, false, 40, 10)
+	// Pass a healthy snapshot (services running) so we get "Load error" not "Services stopped"
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy:     true,
+			LastDeaconHeartbeat: time.Now(),
+		},
+	}
+
+	result := renderMergeQueueList(state, snap, nil, nil, false, 40, 10)
 
 	// Should show error
 	if !strings.Contains(result, "Load error") {
@@ -599,5 +625,235 @@ func TestRenderMergeQueueList_EmptyHealthyState(t *testing.T) {
 	}
 	if !strings.Contains(result, "Queue clear") {
 		t.Errorf("expected 'Queue clear' in healthy empty state, got: %s", result)
+	}
+}
+
+// TestRenderMergeQueueList_ServicesStoppedWithError tests that when services are stopped
+// and there's a load error, we show "Services stopped / stale" instead of "Load error".
+func TestRenderMergeQueueList_ServicesStoppedWithError(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = errors.New("test error")
+	state.MQsLastRefresh = time.Now().Add(-5 * time.Minute)
+
+	// nil snap means services appear stopped
+	result := renderMergeQueueList(state, nil, nil, nil, false, 40, 10)
+
+	// Should show "Services stopped / stale" instead of "Load error"
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' when snap is nil, got: %s", result)
+	}
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should NOT show 'Load error' when services are stopped, got: %s", result)
+	}
+	// Should show last refresh timestamp
+	if !strings.Contains(result, "last:") {
+		t.Errorf("expected 'last:' timestamp when services stopped, got: %s", result)
+	}
+}
+
+// TestRenderMergeQueueList_RefineryStoppedWithError tests that when refinery is stopped
+// and there's a load error, we show "Services stopped / stale" instead of "Load error".
+func TestRenderMergeQueueList_RefineryStoppedWithError(t *testing.T) {
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MQsLoadError = errors.New("test error")
+	state.MQsLastRefresh = time.Now().Add(-5 * time.Minute)
+
+	// Snap with refinery stopped but watchdog healthy
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: false}, // Refinery stopped
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy:     true,
+			LastDeaconHeartbeat: time.Now(),
+		},
+	}
+
+	result := renderMergeQueueList(state, snap, nil, nil, false, 40, 10)
+
+	// Should show "Services stopped / stale" because refinery is stopped
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' when refinery is stopped, got: %s", result)
+	}
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should NOT show 'Load error' when refinery is stopped, got: %s", result)
+	}
+}
+
+// TestRenderConvoysList_Loading tests that loading state shows loading indicator.
+func TestRenderConvoysList_Loading(t *testing.T) {
+	state := NewSidebarState()
+	state.ConvoysLoading = true
+
+	result := renderConvoysList(state, nil, nil, false, 40, 10)
+
+	if !strings.Contains(result, "Loading convoys") {
+		t.Errorf("expected 'Loading convoys' in loading state, got: %s", result)
+	}
+}
+
+// TestRenderConvoysList_ErrorWithServicesRunning tests that real errors show "Load error".
+func TestRenderConvoysList_ErrorWithServicesRunning(t *testing.T) {
+	state := NewSidebarState()
+	state.ConvoysLoading = false
+	state.ConvoysLoadError = errors.New("test error")
+	state.ConvoysLastRefresh = time.Now().Add(-5 * time.Minute)
+
+	// Healthy snapshot (services running)
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "deacon", Role: "deacon", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy:     true,
+			LastDeaconHeartbeat: time.Now(),
+		},
+	}
+
+	result := renderConvoysList(state, snap, nil, false, 40, 10)
+
+	// Should show "Load error" since services are running
+	if !strings.Contains(result, "Load error") {
+		t.Errorf("expected 'Load error' when services running but load failed, got: %s", result)
+	}
+	// Should show last refresh timestamp
+	if !strings.Contains(result, "last:") {
+		t.Errorf("expected 'last:' timestamp, got: %s", result)
+	}
+}
+
+// TestRenderConvoysList_ServicesStoppedWithError tests that services stopped shows stale indicator.
+func TestRenderConvoysList_ServicesStoppedWithError(t *testing.T) {
+	state := NewSidebarState()
+	state.ConvoysLoading = false
+	state.ConvoysLoadError = errors.New("test error")
+	state.ConvoysLastRefresh = time.Now().Add(-5 * time.Minute)
+
+	// nil snap means services appear stopped
+	result := renderConvoysList(state, nil, nil, false, 40, 10)
+
+	// Should show "Services stopped / stale" instead of "Load error"
+	if !strings.Contains(result, "Services stopped") {
+		t.Errorf("expected 'Services stopped' when snap is nil, got: %s", result)
+	}
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should NOT show 'Load error' when services are stopped, got: %s", result)
+	}
+	// Should show last refresh timestamp
+	if !strings.Contains(result, "last:") {
+		t.Errorf("expected 'last:' timestamp when services stopped, got: %s", result)
+	}
+}
+
+// TestRenderConvoysList_NormalWithItems tests normal convoy display.
+func TestRenderConvoysList_NormalWithItems(t *testing.T) {
+	state := NewSidebarState()
+	state.ConvoysLoading = false
+	state.ConvoysLoadError = nil
+	state.Convoys = []convoyItem{
+		{c: data.Convoy{Title: "Deploy feature X"}},
+		{c: data.Convoy{Title: "Fix bug Y"}},
+	}
+
+	items := make([]SelectableItem, len(state.Convoys))
+	for i, c := range state.Convoys {
+		items[i] = c
+	}
+
+	result := renderConvoysList(state, nil, items, false, 40, 10)
+
+	// Should NOT show error or loading
+	if strings.Contains(result, "Load error") {
+		t.Errorf("should not show 'Load error' in normal state, got: %s", result)
+	}
+	if strings.Contains(result, "Loading") {
+		t.Errorf("should not show 'Loading' in normal state, got: %s", result)
+	}
+	// Should show items
+	if !strings.Contains(result, "Deploy feature X") {
+		t.Errorf("expected 'Deploy feature X' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Fix bug Y") {
+		t.Errorf("expected 'Fix bug Y' in output, got: %s", result)
+	}
+}
+
+// TestRefineryRunning tests the refineryRunning helper function.
+func TestRefineryRunning(t *testing.T) {
+	tests := []struct {
+		name     string
+		snap     *data.Snapshot
+		expected bool
+	}{
+		{
+			name:     "nil snapshot",
+			snap:     nil,
+			expected: false,
+		},
+		{
+			name:     "nil town",
+			snap:     &data.Snapshot{Town: nil},
+			expected: false,
+		},
+		{
+			name: "no refinery agents",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{
+					Agents: []data.Agent{
+						{Name: "deacon", Role: "deacon", Running: true},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "refinery stopped",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{
+					Agents: []data.Agent{
+						{Name: "refinery", Role: "refinery", Running: false},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "refinery running",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{
+					Agents: []data.Agent{
+						{Name: "refinery", Role: "refinery", Running: true},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "multiple refineries one running",
+			snap: &data.Snapshot{
+				Town: &data.TownStatus{
+					Agents: []data.Agent{
+						{Name: "refinery-a", Role: "refinery", Running: false},
+						{Name: "refinery-b", Role: "refinery", Running: true},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := refineryRunning(tt.snap)
+			if result != tt.expected {
+				t.Errorf("refineryRunning() = %v, want %v", result, tt.expected)
+			}
+		})
 	}
 }

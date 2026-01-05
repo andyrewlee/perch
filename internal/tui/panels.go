@@ -938,7 +938,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			list = renderAgentsList(state, snap, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
-			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
+			list = renderConvoysList(state, snap, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAlerts && len(items) == 0 {
 			// Special empty state for alerts
 			list = renderAlertsEmptyState(isActive)
@@ -1173,12 +1173,23 @@ func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *Sideba
 	}
 
 	// Show error indicator if MQ failed to load (but still show last-known items)
+	// Distinguish between "services stopped" (intentional) vs "load error" (failure)
 	if state.MQsLoadError != nil {
-		errLine := statusErrorStyle.Render("  ! Load error")
-		if !state.MQsLastRefresh.IsZero() {
-			errLine += mutedStyle.Render(" (stale: " + state.MQsLastRefresh.Format("15:04") + ")")
+		if servicesAppearStopped(snap) || !refineryRunning(snap) {
+			// Services intentionally stopped - show stale indicator, not error
+			stoppedLine := stoppedStyle.Render("  ◌ Services stopped / stale")
+			if !state.MQsLastRefresh.IsZero() {
+				stoppedLine += mutedStyle.Render(" (last: " + state.MQsLastRefresh.Format("15:04") + ")")
+			}
+			lines = append(lines, stoppedLine)
+		} else {
+			// Real error - services should be running but load failed
+			errLine := statusErrorStyle.Render("  ! Load error")
+			if !state.MQsLastRefresh.IsZero() {
+				errLine += mutedStyle.Render(" (stale: " + state.MQsLastRefresh.Format("15:04") + ")")
+			}
+			lines = append(lines, errLine)
 		}
-		lines = append(lines, errLine)
 	}
 
 	// If no items, show appropriate empty state
@@ -1326,6 +1337,20 @@ func servicesAppearStopped(snap *data.Snapshot) bool {
 	return false
 }
 
+// refineryRunning checks if any refinery agent is running.
+// Returns false if no refinery is configured or all are stopped.
+func refineryRunning(snap *data.Snapshot) bool {
+	if snap == nil || snap.Town == nil {
+		return false
+	}
+	for _, agent := range snap.Town.Agents {
+		if agent.Role == "refinery" && agent.Running {
+			return true
+		}
+	}
+	return false
+}
+
 // allAgentsStopped checks if all agents in the list are stopped (not running).
 func allAgentsStopped(agents []agentItem) bool {
 	if len(agents) == 0 {
@@ -1342,7 +1367,8 @@ func allAgentsStopped(agents []agentItem) bool {
 // renderConvoysList renders the convoys list with loading/error state indicators.
 // Per acceptance criteria: always show last-known convoys; if loading, show explicit
 // loading state; if error, show error + last refresh time.
-func renderConvoysList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+// Distinguishes between "services stopped" (intentional) vs "load error" (failure).
+func renderConvoysList(state *SidebarState, snap *data.Snapshot, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
 	var lines []string
 
 	// Show loading indicator during initial load
@@ -1352,12 +1378,23 @@ func renderConvoysList(state *SidebarState, items []SelectableItem, isActiveSect
 	}
 
 	// Show error indicator if convoys failed to load (but still show last-known)
+	// Distinguish between "services stopped" (intentional) vs "load error" (failure)
 	if state.ConvoysLoadError != nil {
-		errLine := statusErrorStyle.Render("  ! Load error")
-		if !state.ConvoysLastRefresh.IsZero() {
-			errLine += mutedStyle.Render(" (last: " + state.ConvoysLastRefresh.Format("15:04") + ")")
+		if servicesAppearStopped(snap) {
+			// Services intentionally stopped - show stale indicator, not error
+			stoppedLine := stoppedStyle.Render("  ◌ Services stopped / stale")
+			if !state.ConvoysLastRefresh.IsZero() {
+				stoppedLine += mutedStyle.Render(" (last: " + state.ConvoysLastRefresh.Format("15:04") + ")")
+			}
+			lines = append(lines, stoppedLine)
+		} else {
+			// Real error - services should be running but load failed
+			errLine := statusErrorStyle.Render("  ! Load error")
+			if !state.ConvoysLastRefresh.IsZero() {
+				errLine += mutedStyle.Render(" (last: " + state.ConvoysLastRefresh.Format("15:04") + ")")
+			}
+			lines = append(lines, errLine)
 		}
-		lines = append(lines, errLine)
 	}
 
 	// Show last-known convoys (or empty state if none)
