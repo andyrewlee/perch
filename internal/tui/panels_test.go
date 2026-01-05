@@ -58,16 +58,16 @@ func TestRenderMQEmptyState_NoRefinery(t *testing.T) {
 
 	result := renderMQEmptyState(snap, nil, false, 40)
 
-	if !strings.Contains(result, "No refinery configured") {
-		t.Errorf("expected 'No refinery configured' in output, got: %s", result)
+	if !strings.Contains(result, "Refinery not configured") {
+		t.Errorf("expected 'Refinery not configured' in output, got: %s", result)
 	}
 }
 
 func TestRenderMQEmptyState_NilSnapshot(t *testing.T) {
 	result := renderMQEmptyState(nil, nil, false, 40)
 
-	if !strings.Contains(result, "No refinery configured") {
-		t.Errorf("expected 'No refinery configured' in output for nil snapshot, got: %s", result)
+	if !strings.Contains(result, "Refinery not configured") {
+		t.Errorf("expected 'Refinery not configured' in output for nil snapshot, got: %s", result)
 	}
 	if !strings.Contains(result, "Queue clear") {
 		t.Errorf("expected 'Queue clear' hint in output, got: %s", result)
