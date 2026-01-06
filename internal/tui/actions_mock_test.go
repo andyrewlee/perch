@@ -72,7 +72,7 @@ func TestActionRunnerWithMock(t *testing.T) {
 
 	t.Run("OpenLogs_Success", func(t *testing.T) {
 		mock := testutil.NewMockRunner()
-		mock.On([]string{"gt", "logs", "perch/polecats/able"}, []byte(""), nil, nil)
+		mock.On([]string{"gt", "log", "--agent", "perch/polecats/able", "-f"}, []byte(""), nil, nil)
 
 		runner := NewActionRunnerWithRunner("/tmp/town", mock)
 		err := runner.OpenLogs(context.Background(), "perch/polecats/able")
@@ -81,14 +81,14 @@ func TestActionRunnerWithMock(t *testing.T) {
 			t.Errorf("unexpected error: %v", err)
 		}
 
-		if !mock.CalledWith([]string{"gt", "logs", "perch/polecats/able"}) {
-			t.Error("expected gt logs to be called with agent address")
+		if !mock.CalledWith([]string{"gt", "log", "--agent", "perch/polecats/able", "-f"}) {
+			t.Error("expected gt log --agent to be called with agent address")
 		}
 	})
 
 	t.Run("OpenLogs_Error", func(t *testing.T) {
 		mock := testutil.NewMockRunner()
-		mock.On([]string{"gt", "logs"}, nil, []byte("agent not found"), errors.New("exit status 1"))
+		mock.On([]string{"gt", "log"}, nil, []byte("agent not found"), errors.New("exit status 1"))
 
 		runner := NewActionRunnerWithRunner("/tmp/town", mock)
 		err := runner.OpenLogs(context.Background(), "unknown/agent")

@@ -54,10 +54,11 @@ type Model struct {
 	// Actions
 	actionRunner   *ActionRunner
 	statusMessage  *StatusMessage
-	confirmDialog  *ConfirmDialog
-	addRigForm     *AddRigForm
-	createWorkForm *CreateWorkForm
-	inputDialog    *InputDialog
+	confirmDialog   *ConfirmDialog
+	addRigForm      *AddRigForm
+	createWorkForm  *CreateWorkForm
+	inputDialog     *InputDialog
+	presetNudgeMenu *PresetNudgeMenu
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -278,6 +279,10 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.TogglePlugin(ctx, target)
 		case ActionOpenSession:
 			err = m.actionRunner.OpenSession(ctx, target)
+		case ActionRestartSession:
+			err = m.actionRunner.RestartSession(ctx, target)
+		case ActionPresetNudge:
+			err = m.actionRunner.NudgeAgent(ctx, target, input)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -444,6 +449,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Handle input dialog first
 	if m.inputDialog != nil {
 		return m.handleInputKey(msg)
+	}
+
+	// Handle preset nudge menu
+	if m.presetNudgeMenu != nil {
+		return m.handlePresetNudgeMenuKey(msg)
 	}
 
 	// Handle attach dialog
@@ -637,16 +647,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.setStatus("Nudging "+mr.mr.Worker+"...", false)
 			return m, m.nudgeCmd(mr.rig, mr.mr.Worker, mr.mr.Branch, mr.mr.HasConflicts)
 		} else if m.sidebar.Section == SectionAgents {
-			// Nudge selected agent (opens input dialog)
+			// Nudge selected agent (opens preset nudge menu)
 			if m.selectedAgent == "" {
 				m.setStatus("No agent selected. Use j/k to select an agent.", true)
 				return m, statusExpireCmd(3 * time.Second)
 			}
-			m.inputDialog = &InputDialog{
-				Title:  "Nudge Agent",
-				Prompt: "Message to " + m.selectedAgent + ": ",
-				Action: ActionNudgeAgent,
-				Target: m.selectedAgent,
+			m.presetNudgeMenu = &PresetNudgeMenu{
+				Target:    m.selectedAgent,
+				Selection: 0,
 			}
 			return m, nil
 		}
@@ -741,6 +749,29 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			ExtraPrompt: "Message: ",
 			Action:      ActionMailAgent,
 			Target:      m.selectedAgent,
+		}
+		return m, nil
+
+	case "t":
+		// Attach to agent's terminal session
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.setStatus("Attaching to "+m.selectedAgent+"...", false)
+		return m, m.actionCmd(ActionOpenSession, m.selectedAgent)
+
+	case "R":
+		// Restart agent's session (requires confirmation)
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Confirm Restart",
+			Message: "Restart session for '" + m.selectedAgent + "'? This stops and starts the agent. (y/n)",
+			Action:  ActionRestartSession,
+			Target:  m.selectedAgent,
 		}
 		return m, nil
 
@@ -1050,6 +1081,50 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "n", "N", "esc":
 		m.confirmDialog = nil
 		m.setStatus("Action cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+	return m, nil
+}
+
+// handlePresetNudgeMenuKey handles key presses when the preset nudge menu is shown.
+func (m Model) handlePresetNudgeMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.presetNudgeMenu.Selection < len(PresetNudges)-1 {
+			m.presetNudgeMenu.Selection++
+		}
+		return m, nil
+
+	case "k", "up":
+		if m.presetNudgeMenu.Selection > 0 {
+			m.presetNudgeMenu.Selection--
+		}
+		return m, nil
+
+	case "enter":
+		selected := PresetNudges[m.presetNudgeMenu.Selection]
+		target := m.presetNudgeMenu.Target
+
+		// If "Custom..." selected, open custom input dialog
+		if selected.Message == "" {
+			m.presetNudgeMenu = nil
+			m.inputDialog = &InputDialog{
+				Title:  "Custom Nudge",
+				Prompt: "Message to " + target + ": ",
+				Action: ActionNudgeAgent,
+				Target: target,
+			}
+			return m, nil
+		}
+
+		// Execute preset nudge
+		m.presetNudgeMenu = nil
+		m.setStatus("Nudging "+target+"...", false)
+		return m, m.actionCmdWithInput(ActionPresetNudge, target, selected.Message, "")
+
+	case "esc", "q":
+		m.presetNudgeMenu = nil
+		m.setStatus("Nudge cancelled", false)
 		return m, statusExpireCmd(2 * time.Second)
 	}
 	return m, nil
@@ -1510,7 +1585,11 @@ func actionName(action ActionType) string {
 	case ActionTogglePlugin:
 		return "Toggle plugin"
 	case ActionOpenSession:
-		return "Open session"
+		return "Attach session"
+	case ActionRestartSession:
+		return "Restart session"
+	case ActionPresetNudge:
+		return "Nudge"
 	default:
 		return "Action"
 	}
@@ -1623,6 +1702,10 @@ func (m Model) View() string {
 
 	if m.attachDialog != nil {
 		return m.attachDialog.Render(m.width, m.height)
+	}
+
+	if m.presetNudgeMenu != nil {
+		return m.renderPresetNudgeMenu()
 	}
 
 	return m.renderLayout()
@@ -2128,7 +2211,7 @@ func (m Model) renderFooter() string {
 		}
 		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs")
 		if m.sidebar != nil && m.sidebar.Section == SectionAgents {
-			helpItems = append(helpItems, "S: sling", "H: handoff", "K: kill", "n: nudge", "m: mail")
+			helpItems = append(helpItems, "n: nudge", "t: attach", "R: restart", "K: kill", "m: mail", "S: sling", "H: handoff")
 		}
 		if m.sidebar != nil && m.sidebar.Section == SectionPlugins {
 			helpItems = append(helpItems, "e: toggle")
@@ -2206,6 +2289,65 @@ func joinHUD(parts []string) []string {
 		}
 	}
 	return result
+}
+
+// renderPresetNudgeMenu renders the preset nudge selection menu overlay
+func (m Model) renderPresetNudgeMenu() string {
+	// Calculate menu dimensions (centered, compact)
+	menuWidth := 50
+	if menuWidth > m.width-4 {
+		menuWidth = m.width - 4
+	}
+
+	// Build menu content
+	var b strings.Builder
+
+	// Title
+	title := helpTitleStyle.Render("Nudge " + m.presetNudgeMenu.Target)
+	b.WriteString(title)
+	b.WriteString("\n\n")
+
+	// Options
+	for i, preset := range PresetNudges {
+		var line string
+		if i == m.presetNudgeMenu.Selection {
+			line = selectedItemStyle.Render("> " + preset.Label)
+		} else {
+			line = mutedStyle.Render("  " + preset.Label)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("j/k: select • enter: send • esc: cancel"))
+
+	content := b.String()
+
+	// Wrap in box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(menuWidth)
+
+	box := boxStyle.Render(content)
+
+	// Center on screen
+	boxHeight := lipgloss.Height(box)
+	boxWidth := lipgloss.Width(box)
+
+	paddingTop := (m.height - boxHeight) / 2
+	paddingLeft := (m.width - boxWidth) / 2
+
+	if paddingTop < 0 {
+		paddingTop = 0
+	}
+	if paddingLeft < 0 {
+		paddingLeft = 0
+	}
+
+	return strings.Repeat("\n", paddingTop) + strings.Repeat(" ", paddingLeft) + box
 }
 
 // renderHelpOverlay renders the help/onboarding overlay
