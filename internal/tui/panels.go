@@ -25,11 +25,12 @@ const (
 	SectionPlugins
 	SectionAlerts
 	SectionErrors
-	SectionBeads // Beads browser (issues)
+	SectionBeads    // Beads browser (issues)
+	SectionOperator // Operator console (subsystem health)
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 12
+const SectionCount = 13
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -57,6 +58,8 @@ func (s SidebarSection) String() string {
 		return "Errors"
 	case SectionBeads:
 		return "Beads"
+	case SectionOperator:
+		return "Operator"
 	default:
 		return "Unknown"
 	}
@@ -439,6 +442,10 @@ type SidebarState struct {
 	Plugins         []pluginItem
 	Alerts          []alertItem // Load errors with actionable details
 	Beads           []beadItem  // Beads browser items (filtered by scope)
+	Operator        []operatorItem // Operator console items (subsystem health)
+
+	// Operator console state
+	OperatorState *OperatorState
 
 	// Beads scope: Town (hq-*) vs Rig
 	BeadsScope BeadsScope
@@ -759,6 +766,15 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		// Preserve s.Beads (last-known value) - don't clear it
 	}
 
+	// Update operator console (subsystem health)
+	s.OperatorState = BuildOperatorState(snap)
+	s.Operator = nil
+	if s.OperatorState != nil {
+		for _, sub := range s.OperatorState.Subsystems {
+			s.Operator = append(s.Operator, operatorItem{sub})
+		}
+	}
+
 	// Clamp selection to valid range
 	s.clampSelection()
 }
@@ -834,6 +850,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 		items := make([]SelectableItem, len(s.Beads))
 		for i, b := range s.Beads {
 			items[i] = b
+		}
+		return items
+	case SectionOperator:
+		items := make([]SelectableItem, len(s.Operator))
+		for i, o := range s.Operator {
+			items[i] = o
 		}
 		return items
 	}
@@ -923,7 +945,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionIdentity; sec <= SectionBeads; sec++ {
+	for sec := SectionIdentity; sec <= SectionOperator; sec++ {
 		// Skip SectionErrors (it's an alias for Alerts)
 		if sec == SectionErrors {
 			continue
@@ -958,6 +980,14 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 				headerText = fmt.Sprintf("Beads [%s] (%d)", scopeBadge, len(state.Beads))
 			}
 		}
+		// For operator, show issue count if any
+		if sec == SectionOperator && state.OperatorState != nil {
+			if state.OperatorState.IssueCount > 0 {
+				headerText = fmt.Sprintf("Operator (%d!)", state.OperatorState.IssueCount)
+			} else if state.OperatorState.WarningCount > 0 {
+				headerText = fmt.Sprintf("Operator (%d⚠)", state.OperatorState.WarningCount)
+			}
+		}
 		header := renderSectionHeader(headerText, sec, isActive, state)
 		items := getSectionItems(state, sec)
 
@@ -977,6 +1007,9 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionBeads {
 			// Special handling for beads section with loading/error states
 			list = renderBeadsList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionOperator {
+			// Special rendering for operator console
+			list = renderOperatorList(state, items, isActive, innerWidth, sectionHeight)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -1105,6 +1138,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 		items := make([]SelectableItem, len(state.Beads))
 		for i, b := range state.Beads {
 			items[i] = b
+		}
+		return items
+	case SectionOperator:
+		items := make([]SelectableItem, len(state.Operator))
+		for i, o := range state.Operator {
+			items[i] = o
 		}
 		return items
 	}
@@ -1601,6 +1640,22 @@ func renderBeadsEmptyState(state *SidebarState, isActive bool, hasError bool) st
 	return strings.Join(lines, "\n")
 }
 
+// renderOperatorList renders the operator console sidebar list.
+func renderOperatorList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	// Check for healthy state with no issues
+	if state.OperatorState != nil && !state.OperatorState.HasIssues && len(items) == 0 {
+		return RenderOperatorEmptyState(state.OperatorState, isActiveSection)
+	}
+
+	// If no operator state yet, show loading
+	if state.OperatorState == nil || len(items) == 0 {
+		return mutedStyle.Render("  Loading...")
+	}
+
+	// Render operator items using the specialized function
+	return RenderOperatorSection(state.OperatorState, state.Selection, isActiveSection, width, maxLines)
+}
+
 // AuditTimelineState holds the audit timeline data for the selected agent.
 type AuditTimelineState struct {
 	Actor   string
@@ -1703,6 +1758,8 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		if state.Selection >= 0 && state.Selection < len(state.Beads) {
 			return renderBeadDetails(state.Beads[state.Selection].issue, state, width)
 		}
+	case SectionOperator:
+		return RenderOperatorDetails(state.OperatorState, state.Selection, width)
 	}
 
 	return mutedStyle.Render("Select an item to see details")
