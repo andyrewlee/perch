@@ -1125,22 +1125,11 @@ func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool
 		return strings.Join(lines, "\n")
 	}
 
-	// Find refinery agents and their status
-	refineryRunning := false
-	refineryCount := 0
-	if snap != nil && snap.Town != nil {
-		for _, agent := range snap.Town.Agents {
-			if agent.Role == "refinery" {
-				refineryCount++
-				if agent.Running {
-					refineryRunning = true
-				}
-			}
-		}
-	}
+	refineryRunning := refineryRunning(snap)
+	refineryConfigured := refineryConfigured(snap)
 
 	// Show refinery status with actionable hints
-	if refineryCount > 0 {
+	if refineryConfigured {
 		if refineryRunning {
 			lines = append(lines, idleStyle.Render("  ○ Refinery idle"))
 		} else {
@@ -1402,6 +1391,39 @@ func refineryRunning(snap *data.Snapshot) bool {
 	for _, agent := range snap.Town.Agents {
 		if agent.Role == "refinery" && agent.Running {
 			return true
+		}
+	}
+	for _, rig := range snap.Town.Rigs {
+		for _, agent := range rig.Agents {
+			if agent.Role == "refinery" && agent.Running {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// refineryConfigured checks if any refinery exists in the town (town-level or rig-level).
+func refineryConfigured(snap *data.Snapshot) bool {
+	if snap == nil || snap.Town == nil {
+		return false
+	}
+	if snap.Town.Summary.RefineryCount > 0 {
+		return true
+	}
+	for _, agent := range snap.Town.Agents {
+		if agent.Role == "refinery" {
+			return true
+		}
+	}
+	for _, rig := range snap.Town.Rigs {
+		if rig.HasRefinery {
+			return true
+		}
+		for _, agent := range rig.Agents {
+			if agent.Role == "refinery" {
+				return true
+			}
 		}
 	}
 	return false
