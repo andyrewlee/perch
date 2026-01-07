@@ -42,6 +42,8 @@ const (
 	ActionOpenSession    // Attach to agent's tmux session (advanced)
 	ActionRestartSession // Restart agent's session
 	ActionPresetNudge    // Nudge with preset message
+	ActionCreateBead     // Create a new bead (issue)
+	ActionEditBead       // Edit an existing bead
 )
 
 // Action represents a user-triggered action with its result.
@@ -238,6 +240,34 @@ func (r *ActionRunner) CreateWork(ctx context.Context, title, issueType string, 
 	_ = slingTarget
 
 	return nil
+}
+
+// CreateBead creates a new bead (issue).
+// Runs: bd create --title "..." --type <type> --priority <n> [--description "..."]
+func (r *ActionRunner) CreateBead(ctx context.Context, title, description, issueType string, priority int) error {
+	args := []string{"bd", "create",
+		"--title", title,
+		"--type", issueType,
+		"--priority", fmt.Sprintf("%d", priority)}
+	if description != "" {
+		args = append(args, "--description", description)
+	}
+	return r.runCommand(ctx, args...)
+}
+
+// UpdateBead updates an existing bead.
+// Runs: bd update <id> --title "..." [--type <type>] [--priority <n>] [--description "..."]
+func (r *ActionRunner) UpdateBead(ctx context.Context, id, title, description, issueType string, priority int) error {
+	args := []string{"bd", "update", id,
+		"--title", title}
+	if description != "" {
+		args = append(args, "--description", description)
+	}
+	if issueType != "" {
+		args = append(args, "--type", issueType)
+	}
+	args = append(args, "--priority", fmt.Sprintf("%d", priority))
+	return r.runCommand(ctx, args...)
 }
 
 // SlingWork assigns work to an agent.
