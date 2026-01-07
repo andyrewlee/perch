@@ -324,6 +324,10 @@ func TestShutdownAction(t *testing.T) {
 }
 
 // TestDeleteAction tests the delete action flow with confirmation dialog.
+//
+// It verifies that:
+// - Pressing 'd' shows a confirmation dialog with correct action and title
+// - Confirming with 'y' executes the delete command (gt rig remove)
 func TestDeleteAction(t *testing.T) {
 	t.Run("DeleteRig_ShowsConfirmation", func(t *testing.T) {
 		m, _ := createTestModel(t)
