@@ -189,6 +189,7 @@ type Issue struct {
 	Labels          []string  `json:"labels"`
 	DependencyCount int       `json:"dependency_count"`
 	DependentCount  int       `json:"dependent_count"`
+	Ephemeral       bool      `json:"ephemeral"`
 }
 
 // MailMessage represents a mail message in the inbox.
