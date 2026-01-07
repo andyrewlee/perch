@@ -1122,8 +1122,15 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 
 	// Always update ActiveHooks when hooked issues loaded successfully
 	// This ensures the count matches reality even when 0
+	// Exclude ephemeral issues and message-type issues from the count
 	if s.HookedLoaded {
-		s.Town.Summary.ActiveHooks = len(s.HookedIssues)
+		activeCount := 0
+		for _, issue := range s.HookedIssues {
+			if !issue.Ephemeral && issue.IssueType != "message" {
+				activeCount++
+			}
+		}
+		s.Town.Summary.ActiveHooks = activeCount
 	}
 	// If HookedLoaded is false (load failed), keep the existing value from gt status
 
@@ -1185,9 +1192,10 @@ func (s *Snapshot) EnrichWithHookedBeads() {
 
 		// Also count hooked issues assigned to agents not in Hooks array
 		// by checking all hooked issues whose assignee starts with this rig name
+		// Exclude ephemeral issues and message-type issues
 		rigPrefix := rig.Name + "/"
 		for _, issue := range s.HookedIssues {
-			if strings.HasPrefix(issue.Assignee, rigPrefix) {
+			if !issue.Ephemeral && issue.IssueType != "message" && strings.HasPrefix(issue.Assignee, rigPrefix) {
 				// Check if this assignee was already counted via Hooks
 				alreadyCounted := false
 				for _, hook := range rig.Hooks {
