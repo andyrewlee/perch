@@ -17,6 +17,7 @@ const (
 	RefineryStalled
 )
 
+// String returns the string representation of the RefineryState.
 func (s RefineryState) String() string {
 	switch s {
 	case RefineryIdle:
