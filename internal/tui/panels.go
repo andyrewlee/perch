@@ -843,9 +843,16 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	}
 
 	// Update alerts from load errors
-	s.Alerts = make([]alertItem, len(snap.LoadErrors))
-	for i, err := range snap.LoadErrors {
-		s.Alerts[i] = alertItem{err}
+	// Suppress individual errors when watchdog is down (data is stale, not failed)
+	// The top alert already shows "Data stale: ..." summary
+	watchdogDown := snap.OperationalState != nil && !snap.OperationalState.WatchdogHealthy
+	if watchdogDown {
+		s.Alerts = nil // No individual errors when stale - summary shown in top alerts
+	} else {
+		s.Alerts = make([]alertItem, len(snap.LoadErrors))
+		for i, err := range snap.LoadErrors {
+			s.Alerts[i] = alertItem{err}
+		}
 	}
 
 	// Update beads with loading/error tracking
