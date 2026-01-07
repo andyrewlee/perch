@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -1724,6 +1725,10 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		if state.Selection >= 0 && state.Selection < len(state.Beads) {
 			return renderBeadDetails(state.Beads[state.Selection].issue, state, width, dependencies, comments)
 		}
+		// No bead selected - show routes overview
+		return renderBeadsRoutesView(snap, state, width)
+	case SectionOperator:
+		return RenderOperatorDetails(state.OperatorState, state.Selection, width)
 	}
 
 	return mutedStyle.Render("Select an item to see details")
@@ -1912,6 +1917,82 @@ func beadStatusBadge(status string) string {
 	default: // open
 		return idleStyle.Render("○")
 	}
+}
+
+// renderBeadsRoutesView renders the beads routing table when no bead is selected.
+// Shows prefix-to-location mappings so users understand how bead commands route.
+func renderBeadsRoutesView(snap *data.Snapshot, state *SidebarState, width int) string {
+	var lines []string
+
+	// Header with scope indicator
+	scopeLabel := "Rig"
+	if state.BeadsScope == BeadsScopeTown {
+		scopeLabel = "Town"
+	}
+	lines = append(lines, headerStyle.Render(fmt.Sprintf("Beads Routing (%s)", scopeLabel)))
+	lines = append(lines, "")
+
+	// Show routes if available
+	if snap != nil && snap.Routes != nil && len(snap.Routes.Entries) > 0 {
+		// Sort prefixes for consistent display
+		prefixes := make([]string, 0, len(snap.Routes.Entries))
+		for p := range snap.Routes.Entries {
+			prefixes = append(prefixes, p)
+		}
+		// Sort: town first, then alphabetically
+		sort.Slice(prefixes, func(i, j int) bool {
+			if prefixes[i] == "hq-" {
+				return true
+			}
+			if prefixes[j] == "hq-" {
+				return false
+			}
+			return prefixes[i] < prefixes[j]
+		})
+
+		lines = append(lines, headerStyle.Render("Prefix Routes"))
+		for _, prefix := range prefixes {
+			route := snap.Routes.Entries[prefix]
+			// Show prefix with badge
+			prefixBadge := headerStyle.Render(prefix)
+
+			// Truncate location if too long
+			location := route.Location
+			if len(location) > width-20 {
+				location = "..." + location[len(location)-(width-23):]
+			}
+
+			if route.Rig != "" {
+				lines = append(lines, fmt.Sprintf("%s → %s", prefixBadge, route.Rig))
+				lines = append(lines, mutedStyle.Render("     "+location))
+			} else {
+				lines = append(lines, fmt.Sprintf("%s → (town)", prefixBadge))
+				lines = append(lines, mutedStyle.Render("     "+location))
+			}
+		}
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, mutedStyle.Render("No routes configured"))
+		lines = append(lines, "")
+	}
+
+	// Explanation of routing
+	lines = append(lines, headerStyle.Render("How Routing Works"))
+	lines = append(lines, "Bead IDs use prefixes that route to their rig:")
+	lines = append(lines, "")
+	lines = append(lines, "  hq-xyz  → Town beads (~/gt/.beads/)")
+	lines = append(lines, "  pe-xyz  → Perch rig beads")
+	lines = append(lines, "  gt-xyz  → GasTown rig beads")
+	lines = append(lines, "")
+	lines = append(lines, mutedStyle.Render("Commands like 'bd show pe-123' use this"))
+	lines = append(lines, mutedStyle.Render("routing to find the correct beads database."))
+	lines = append(lines, "")
+
+	// Quick actions hint
+	lines = append(lines, mutedStyle.Render("Press 's' to switch scope (Rig/Town)"))
+	lines = append(lines, mutedStyle.Render("Press 'r' to refresh"))
+
+	return strings.Join(lines, "\n")
 }
 
 func renderConvoyDetails(c data.Convoy, status *data.ConvoyStatus, width int, isHistory bool) string {
