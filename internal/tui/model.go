@@ -302,7 +302,7 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.OpenLogs(ctx, target)
 		case ActionNudgeRefinery:
 			err = m.actionRunner.NudgeRefinery(ctx, target)
-		case ActionRestartRefinery:
+		case ActionRestartRefinery, ActionRestartRefineryAlt:
 			err = m.actionRunner.RestartRefinery(ctx, target)
 		case ActionStopPolecat:
 			err = m.actionRunner.StopPolecat(ctx, target)
@@ -328,6 +328,23 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.RestartSession(ctx, target)
 		case ActionPresetNudge:
 			err = m.actionRunner.NudgeAgent(ctx, target, input)
+		// Infrastructure agent controls
+		case ActionStartDeacon:
+			err = m.actionRunner.StartDeacon(ctx)
+		case ActionStopDeacon:
+			err = m.actionRunner.StopDeacon(ctx)
+		case ActionRestartDeacon:
+			err = m.actionRunner.RestartDeacon(ctx)
+		case ActionStartWitness:
+			err = m.actionRunner.StartWitness(ctx, target)
+		case ActionStopWitness:
+			err = m.actionRunner.StopWitness(ctx, target)
+		case ActionRestartWitness:
+			err = m.actionRunner.RestartWitness(ctx, target)
+		case ActionStartRefinery:
+			err = m.actionRunner.StartRefinery(ctx, target)
+		case ActionStopRefinery:
+			err = m.actionRunner.StopRefinery(ctx, target)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -576,13 +593,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
+		// Context-dependent: Manual refresh OR restart subsystem (Operator section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
+			// Restart selected infrastructure subsystem
+			return m.handleInfrastructureRestart()
+		}
 		// Manual refresh
 		m.isRefreshing = true
 		m.setStatus("Refreshing data...", false)
 		return m, m.loadData
 
 	case "b":
-		// Context-dependent: Beads form (Beads section) or boot rig (Rigs section)
+		// Context-dependent: Beads form (Beads section), start infrastructure (Operator section), or boot rig (Rigs section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
 			// Open beads form for create or edit
 			var selectedBead *data.Issue
@@ -605,6 +627,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
+			// Start selected infrastructure subsystem
+			return m.handleInfrastructureStart()
+		}
 		// Boot selected rig
 		if m.selectedRig == "" {
 			m.setStatus("No rig selected. Use j/k to select a rig.", true)
@@ -614,19 +640,10 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.actionCmd(ActionBootRig, m.selectedRig)
 
 	case "s":
-		// Context-dependent: Toggle beads scope (Beads section) or shutdown rig (Rigs section)
-		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
-			m.sidebar.ToggleBeadsScope()
-			// Re-filter beads after scope change
-			if m.snapshot != nil {
-				m.sidebar.UpdateFromSnapshot(m.snapshot)
-			}
-			scopeName := "rig"
-			if m.sidebar.BeadsScope == BeadsScopeTown {
-				scopeName = "town"
-			}
-			m.setStatus("Showing "+scopeName+" beads", false)
-			return m, statusExpireCmd(2 * time.Second)
+		// Context-dependent: Stop infrastructure (Operator section), toggle beads scope (Beads section), or shutdown rig (Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
+			// Stop selected infrastructure subsystem
+			return m.handleInfrastructureStop()
 		}
 		// Shutdown selected rig (requires confirmation)
 		if m.selectedRig == "" {
@@ -1706,6 +1723,137 @@ func (m *Model) updateSelectedFromSidebar() {
 	_ = m.syncSelection()
 }
 
+// handleInfrastructureStart handles starting the selected infrastructure subsystem.
+func (m Model) handleInfrastructureStart() (tea.Model, tea.Cmd) {
+	if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Operator) {
+		m.setStatus("No subsystem selected", true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	subsystem := m.sidebar.Operator[m.sidebar.Selection].h
+	var action ActionType
+	var target string
+
+	switch subsystem.Subsystem {
+	case "deacon":
+		action = ActionStartDeacon
+		target = "deacon"
+	case "witness":
+		// Extract rig name from subsystem ID (e.g., "witness_perch")
+		if subsystem.Rig != "" {
+			action = ActionStartWitness
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot start witness: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	case "refinery":
+		if subsystem.Rig != "" {
+			action = ActionStartRefinery
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot start refinery: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	default:
+		m.setStatus("Cannot start subsystem: "+subsystem.Name, true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	m.setStatus("Starting "+subsystem.Name+"...", false)
+	return m, m.actionCmd(action, target)
+}
+
+// handleInfrastructureStop handles stopping the selected infrastructure subsystem.
+func (m Model) handleInfrastructureStop() (tea.Model, tea.Cmd) {
+	if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Operator) {
+		m.setStatus("No subsystem selected", true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	subsystem := m.sidebar.Operator[m.sidebar.Selection].h
+	var action ActionType
+	var target string
+
+	switch subsystem.Subsystem {
+	case "deacon":
+		action = ActionStopDeacon
+		target = "deacon"
+	case "witness":
+		if subsystem.Rig != "" {
+			action = ActionStopWitness
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot stop witness: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	case "refinery":
+		if subsystem.Rig != "" {
+			action = ActionStopRefinery
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot stop refinery: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	default:
+		m.setStatus("Cannot stop subsystem: "+subsystem.Name, true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	m.confirmDialog = &ConfirmDialog{
+		Title:   "Confirm Stop",
+		Message: "Stop " + subsystem.Name + "? (y/n)",
+		Action:  action,
+		Target:  target,
+	}
+	return m, nil
+}
+
+// handleInfrastructureRestart handles restarting the selected infrastructure subsystem.
+func (m Model) handleInfrastructureRestart() (tea.Model, tea.Cmd) {
+	if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Operator) {
+		m.setStatus("No subsystem selected", true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	subsystem := m.sidebar.Operator[m.sidebar.Selection].h
+	var action ActionType
+	var target string
+
+	switch subsystem.Subsystem {
+	case "deacon":
+		action = ActionRestartDeacon
+		target = "deacon"
+	case "witness":
+		if subsystem.Rig != "" {
+			action = ActionRestartWitness
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot restart witness: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	case "refinery":
+		if subsystem.Rig != "" {
+			action = ActionRestartRefineryAlt
+			target = subsystem.Rig
+		} else {
+			m.setStatus("Cannot restart refinery: no rig specified", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+	default:
+		m.setStatus("Cannot restart subsystem: "+subsystem.Name, true)
+		return m, statusExpireCmd(3 * time.Second)
+	}
+
+	m.confirmDialog = &ConfirmDialog{
+		Title:   "Confirm Restart",
+		Message: "Restart " + subsystem.Name + "? (y/n)",
+		Action:  action,
+		Target:  target,
+	}
+	return m, nil
+}
+
 // actionName returns a human-readable name for an action type.
 func actionName(action ActionType) string {
 	switch action {
@@ -1735,7 +1883,7 @@ func actionName(action ActionType) string {
 		return "Mail"
 	case ActionNudgeRefinery:
 		return "Nudge refinery"
-	case ActionRestartRefinery:
+	case ActionRestartRefinery, ActionRestartRefineryAlt:
 		return "Restart refinery"
 	case ActionStopPolecat:
 		return "Stop polecat"
@@ -1765,6 +1913,23 @@ func actionName(action ActionType) string {
 		return "Create bead"
 	case ActionEditBead:
 		return "Update bead"
+	// Infrastructure agent controls
+	case ActionStartDeacon:
+		return "Start deacon"
+	case ActionStopDeacon:
+		return "Stop deacon"
+	case ActionRestartDeacon:
+		return "Restart deacon"
+	case ActionStartWitness:
+		return "Start witness"
+	case ActionStopWitness:
+		return "Stop witness"
+	case ActionRestartWitness:
+		return "Restart witness"
+	case ActionStartRefinery:
+		return "Start refinery"
+	case ActionStopRefinery:
+		return "Stop refinery"
 	default:
 		return "Action"
 	}
@@ -2397,6 +2562,9 @@ func (m Model) renderFooter() string {
 			if m.sidebar.Section == SectionErrors {
 				helpItems = append(helpItems, "r: retry")
 			}
+			if m.sidebar.Section == SectionOperator {
+				helpItems = append(helpItems, "b: start", "s: stop", "r: restart")
+			}
 		}
 		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs")
 		if m.sidebar != nil && m.sidebar.Section == SectionAgents {
@@ -2643,6 +2811,12 @@ func (m Model) renderHelpOverlay() string {
 		helpHeaderStyle.Render("Plugin Actions (when in Plugins section)"),
 		"",
 		helpKeyStyle.Render("e") + "          Toggle plugin enabled/disabled",
+		"",
+		helpHeaderStyle.Render("Infrastructure Actions (when in Operator section)"),
+		"",
+		helpKeyStyle.Render("b") + "          Start selected subsystem (Deacon/Witness/Refinery)",
+		helpKeyStyle.Render("s") + "          Stop selected subsystem",
+		helpKeyStyle.Render("r") + "          Restart selected subsystem",
 	}
 
 	dismissMsg := "\n" + mutedStyle.Render("Press any key to dismiss")

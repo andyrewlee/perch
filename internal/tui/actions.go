@@ -44,6 +44,17 @@ const (
 	ActionPresetNudge    // Nudge with preset message
 	ActionCreateBead     // Create a new bead (issue)
 	ActionEditBead       // Edit an existing bead
+
+	// Infrastructure agent controls (Deacon/Witness/Refinery)
+	ActionStartDeacon     // Start the Deacon (town-level watchdog)
+	ActionStopDeacon      // Stop the Deacon
+	ActionRestartDeacon   // Restart the Deacon
+	ActionStartWitness    // Start a Witness (rig-specific)
+	ActionStopWitness     // Stop a Witness
+	ActionRestartWitness  // Restart a Witness
+	ActionStartRefinery   // Start a Refinery (rig-specific)
+	ActionStopRefinery    // Stop a Refinery
+	ActionRestartRefineryAlt // Restart a Refinery (alternative naming for clarity)
 )
 
 // Action represents a user-triggered action with its result.
@@ -351,6 +362,60 @@ func (r *ActionRunner) OpenSession(ctx context.Context, agentAddress string) err
 	return r.runCommand(ctx, "gt", "session", "attach", agentAddress)
 }
 
+// StartDeacon starts the Deacon (town-level watchdog).
+// Runs: gt deacon start
+func (r *ActionRunner) StartDeacon(ctx context.Context) error {
+	return r.runCommand(ctx, "gt", "deacon", "start")
+}
+
+// StopDeacon stops the Deacon.
+// Runs: gt deacon stop
+func (r *ActionRunner) StopDeacon(ctx context.Context) error {
+	return r.runCommand(ctx, "gt", "deacon", "stop")
+}
+
+// RestartDeacon restarts the Deacon.
+// Runs: gt deacon restart
+func (r *ActionRunner) RestartDeacon(ctx context.Context) error {
+	return r.runCommand(ctx, "gt", "deacon", "restart")
+}
+
+// StartWitness starts a Witness for the given rig.
+// Runs: gt witness start <rig>
+func (r *ActionRunner) StartWitness(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "witness", "start", rig)
+}
+
+// StopWitness stops a Witness for the given rig.
+// Runs: gt witness stop <rig>
+func (r *ActionRunner) StopWitness(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "witness", "stop", rig)
+}
+
+// RestartWitness restarts a Witness for the given rig.
+// Runs: gt witness restart <rig>
+func (r *ActionRunner) RestartWitness(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "witness", "restart", rig)
+}
+
+// StartRefinery starts a Refinery for the given rig.
+// Runs: gt refinery start <rig>
+func (r *ActionRunner) StartRefinery(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "refinery", "start", rig)
+}
+
+// StopRefinery stops a Refinery for the given rig.
+// Runs: gt refinery stop <rig>
+func (r *ActionRunner) StopRefinery(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "refinery", "stop", rig)
+}
+
+// RestartRefineryAgent restarts a Refinery for the given rig.
+// Runs: gt refinery restart <rig>
+func (r *ActionRunner) RestartRefineryAgent(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "refinery", "restart", rig)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -431,9 +496,12 @@ type PresetNudgeMenu struct {
 // IsDestructive returns true if the action type requires confirmation.
 func IsDestructive(action ActionType) bool {
 	switch action {
-	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery,
+	case ActionShutdownRig, ActionDeleteRig, ActionRestartRefinery, ActionRestartRefineryAlt,
 		ActionStopPolecat, ActionStopAllIdle, ActionRemoveWorktree,
-		ActionStopAgent, ActionRestartSession:
+		ActionStopAgent, ActionRestartSession,
+		ActionStopDeacon, ActionRestartDeacon,
+		ActionStopWitness, ActionRestartWitness,
+		ActionStopRefinery:
 		return true
 	default:
 		return false

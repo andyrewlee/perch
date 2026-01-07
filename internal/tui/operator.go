@@ -95,11 +95,18 @@ func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 	// 3. Per-rig subsystems
 	if snap.Town != nil {
 		for _, rig := range snap.Town.Rigs {
+			// Get heartbeat info for this rig (if available)
+			var witnessHeartbeat, refineryHeartbeat time.Time
+			if snap.OperationalState != nil {
+				witnessHeartbeat = snap.OperationalState.LastWitnessHeartbeat[rig.Name]
+				refineryHeartbeat = snap.OperationalState.LastRefineryHeartbeat[rig.Name]
+			}
+
 			// Witness health
-			state.Subsystems = append(state.Subsystems, buildWitnessHealth(rig))
+			state.Subsystems = append(state.Subsystems, buildWitnessHealth(rig, witnessHeartbeat))
 
 			// Refinery health
-			state.Subsystems = append(state.Subsystems, buildRefineryHealth(rig, snap.MergeQueues[rig.Name]))
+			state.Subsystems = append(state.Subsystems, buildRefineryHealth(rig, snap.MergeQueues[rig.Name], refineryHeartbeat))
 
 			// Hooks health (stale work detection)
 			state.Subsystems = append(state.Subsystems, buildHooksHealth(rig))
@@ -157,7 +164,7 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 		h.Details = state.WatchdogReason
 		h.Action = state.WatchdogAction
 		if h.Action == "" {
-			h.Action = "Run 'gt deacon start' to start deacon"
+			h.Action = "Press 'b' to start deacon"
 		}
 		return h
 	}
@@ -178,7 +185,7 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 			h.Status = SubsystemWarning
 			h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(age))
 			h.Details = "Deacon hasn't checked in recently"
-			h.Action = "Check if deacon process is running"
+			h.Action = "Press 'r' to restart deacon"
 			return h
 		}
 		h.Message = fmt.Sprintf("Heartbeat: %s ago", formatDuration(age))
@@ -224,7 +231,7 @@ func buildBeadsSyncHealth(snap *data.Snapshot) SubsystemHealth {
 }
 
 // buildWitnessHealth checks witness health for a rig.
-func buildWitnessHealth(rig data.Rig) SubsystemHealth {
+func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        fmt.Sprintf("[%s] Witness", rig.Name),
 		Subsystem:   fmt.Sprintf("witness_%s", rig.Name),
@@ -237,7 +244,7 @@ func buildWitnessHealth(rig data.Rig) SubsystemHealth {
 		h.Status = SubsystemUnknown
 		h.Message = "Not configured"
 		h.Details = "No witness configured for this rig"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start witness"
+		h.Action = "Press 'b' to start witness"
 		return h
 	}
 
@@ -254,7 +261,7 @@ func buildWitnessHealth(rig data.Rig) SubsystemHealth {
 		h.Status = SubsystemError
 		h.Message = "Not found"
 		h.Details = "Witness is configured but agent not found"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start witness"
+		h.Action = "Press 'b' to start witness"
 		return h
 	}
 
@@ -262,17 +269,31 @@ func buildWitnessHealth(rig data.Rig) SubsystemHealth {
 		h.Status = SubsystemError
 		h.Message = "Stopped"
 		h.Details = "Witness session is not running"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start witness"
+		h.Action = "Press 'b' to start witness"
 		return h
 	}
 
-	h.Message = "Running"
+	// Check heartbeat freshness
+	if !lastHeartbeat.IsZero() {
+		age := time.Since(lastHeartbeat)
+		if age > 5*time.Minute {
+			h.Status = SubsystemWarning
+			h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(age))
+			h.Details = "Witness hasn't checked in recently"
+			h.Action = "Press 'r' to restart witness"
+			return h
+		}
+		h.Message = fmt.Sprintf("Running (heartbeat: %s ago)", formatDuration(age))
+	} else {
+		h.Message = "Running"
+	}
+
 	h.Details = fmt.Sprintf("Witness is active at %s", witness.Address)
 	return h
 }
 
 // buildRefineryHealth checks refinery health for a rig.
-func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest) SubsystemHealth {
+func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        fmt.Sprintf("[%s] Refinery", rig.Name),
 		Subsystem:   fmt.Sprintf("refinery_%s", rig.Name),
@@ -285,7 +306,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest) SubsystemHealth 
 		h.Status = SubsystemUnknown
 		h.Message = "Not configured"
 		h.Details = "No refinery configured for this rig"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start refinery"
+		h.Action = "Press 'b' to start refinery"
 		return h
 	}
 
@@ -302,7 +323,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest) SubsystemHealth 
 		h.Status = SubsystemError
 		h.Message = "Not found"
 		h.Details = "Refinery is configured but agent not found"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start refinery"
+		h.Action = "Press 'b' to start refinery"
 		return h
 	}
 
@@ -310,8 +331,18 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest) SubsystemHealth 
 		h.Status = SubsystemError
 		h.Message = "Stopped"
 		h.Details = "Refinery session is not running"
-		h.Action = "Run 'gt boot " + rig.Name + "' to start refinery"
+		h.Action = "Press 'b' to start refinery"
 		return h
+	}
+
+	// Check heartbeat freshness
+	staleHeartbeat := false
+	if !lastHeartbeat.IsZero() {
+		age := time.Since(lastHeartbeat)
+		if age > 5*time.Minute {
+			h.Status = SubsystemWarning
+			staleHeartbeat = true
+		}
 	}
 
 	// Check merge queue for stalled MRs
@@ -330,10 +361,25 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest) SubsystemHealth 
 		return h
 	}
 
+	if staleHeartbeat {
+		h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(time.Since(lastHeartbeat)))
+		h.Details = "Refinery hasn't checked in recently"
+		h.Action = "Press 'r' to restart refinery"
+		return h
+	}
+
 	if len(mrs) > 0 {
-		h.Message = fmt.Sprintf("Running (%d queued)", len(mrs))
+		if !lastHeartbeat.IsZero() {
+			h.Message = fmt.Sprintf("Running (%d queued, heartbeat: %s ago)", len(mrs), formatDuration(time.Since(lastHeartbeat)))
+		} else {
+			h.Message = fmt.Sprintf("Running (%d queued)", len(mrs))
+		}
 	} else {
-		h.Message = "Idle"
+		if !lastHeartbeat.IsZero() {
+			h.Message = fmt.Sprintf("Idle (heartbeat: %s ago)", formatDuration(time.Since(lastHeartbeat)))
+		} else {
+			h.Message = "Idle"
+		}
 	}
 	h.Details = fmt.Sprintf("Refinery is active at %s", refinery.Address)
 	return h
