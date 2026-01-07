@@ -471,6 +471,12 @@ type SidebarState struct {
 	MQsLoadError   error     // Error from last MQ load attempt (nil if successful)
 	MQsLoading     bool      // True during initial load
 
+	// Loading/error state for beads panel
+	BeadsLastRefresh       time.Time // Last successful beads data refresh
+	BeadsLoadError         error     // Error from last beads load attempt (nil if successful)
+	BeadsLoadSuggestedAction string   // Suggested action to fix the load error
+	BeadsLoading           bool      // True during initial load
+	BeadsTotalCount        int       // Total issues before filtering (to detect filtered state)
 	// Loading/error state for mail panel
 	MailLastRefresh   time.Time // Last successful mail data refresh
 	MailLoadError     error     // Error from last mail load attempt (nil if successful)
@@ -940,6 +946,7 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		}
 		s.BeadsLastRefresh = snap.LoadedAt
 		s.BeadsLoadError = nil
+		s.BeadsLoadSuggestedAction = ""
 		s.BeadsLoading = false
 	} else {
 		// Issues failed to load - find the error if any
@@ -947,6 +954,7 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		for _, loadErr := range snap.LoadErrors {
 			if loadErr.Source == "issues" {
 				s.BeadsLoadError = errors.New(loadErr.Error)
+				s.BeadsLoadSuggestedAction = loadErr.SuggestedAction()
 				break
 			}
 		}
@@ -1861,6 +1869,70 @@ func renderAlertsEmptyState(isActive bool) string {
 	if isActive {
 		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
 	}
+	return strings.Join(lines, "\n")
+}
+
+// renderBeadsList renders the beads list with loading/error state indicators.
+// Shows open issues (excludes closed), and explains when issues are filtered or stale.
+func renderBeadsList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	var lines []string
+
+	// Show loading indicator during initial load
+	if state.BeadsLoading {
+		lines = append(lines, mutedStyle.Render("  Loading issues..."))
+		return strings.Join(lines, "\n")
+	}
+
+	// Show error indicator if beads failed to load (but still show last-known items)
+	hasError := state.BeadsLoadError != nil
+	if hasError {
+		errLine := statusErrorStyle.Render("  ! Load error")
+		if !state.BeadsLastRefresh.IsZero() {
+			errLine += mutedStyle.Render(" (stale: " + state.BeadsLastRefresh.Format("15:04") + ")")
+		}
+		lines = append(lines, errLine)
+
+		// Show suggested action if available
+		if state.BeadsLoadSuggestedAction != "" {
+			actionLine := mutedStyle.Render("  → " + state.BeadsLoadSuggestedAction)
+			lines = append(lines, actionLine)
+		}
+	}
+
+	// If no items, show appropriate empty state
+	if len(items) == 0 {
+		emptyState := renderBeadsEmptyState(state, isActiveSection, hasError)
+		// Prepend error banner if present
+		if hasError {
+			return strings.Join(lines, "\n") + "\n" + emptyState
+		}
+		return emptyState
+	}
+
+	// Calculate remaining lines for bead list (accounting for error banner if present)
+	remainingLines := maxLines - len(lines)
+	if remainingLines < 1 {
+		remainingLines = 1
+	}
+
+	// Render bead items
+	for i, item := range items {
+		if len(lines) >= maxLines {
+			break
+		}
+
+		label := item.Label()
+		if len(label) > width-4 {
+			label = label[:width-7] + "..."
+		}
+
+		if isActiveSection && i == state.Selection {
+			lines = append(lines, selectedItemStyle.Render("> "+label))
+		} else {
+			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
 	return strings.Join(lines, "\n")
 }
 

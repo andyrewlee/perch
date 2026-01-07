@@ -4,6 +4,7 @@ package data
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -425,7 +426,7 @@ func (e *LoadError) SuggestedAction() string {
 	case "convoys":
 		return "Check convoy status with 'gt convoy list'"
 	case "issues":
-		return "Verify beads configuration with 'bd list'"
+		return e.beadsSuggestedAction()
 	case "polecats":
 		return "Check polecat status with 'gt polecat list --all'"
 	case "lifecycle":
@@ -437,6 +438,44 @@ func (e *LoadError) SuggestedAction() string {
 	default:
 		return "Check command manually: " + e.Command
 	}
+}
+
+// beadsSuggestedAction returns a specific action for beads load errors.
+func (e *LoadError) beadsSuggestedAction() string {
+	// Check stderr for specific error patterns
+	errorText := e.Stderr
+	if errorText == "" {
+		errorText = e.Error
+	}
+
+	// Detect prefix mismatch: "prefix mismatch", "wrong prefix", or "Configured prefix"
+	if containsAny(errorText, []string{"prefix mismatch", "wrong prefix", "Configured prefix"}) {
+		return "Run: bd sync --import-only --rename-on-import"
+	}
+
+	// Detect out-of-sync or import errors
+	if containsAny(errorText, []string{"out of sync", "out-of-sync", "import failed", "import error"}) {
+		return "Run: bd sync --import-only"
+	}
+
+	// Detect stale JSONL or database issues
+	if containsAny(errorText, []string{"stale", "newer data available", "auto-import disabled"}) {
+		return "Run: bd sync --import-only"
+	}
+
+	// Default suggestion
+	return "Verify beads configuration with 'bd list'"
+}
+
+// containsAny checks if the text contains any of the substrings (case-insensitive).
+func containsAny(text string, substrings []string) bool {
+	textLower := strings.ToLower(text)
+	for _, s := range substrings {
+		if strings.Contains(textLower, strings.ToLower(s)) {
+			return true
+		}
+	}
+	return false
 }
 
 // SourceLabel returns a human-readable label for the source.
