@@ -10,15 +10,19 @@ import (
 )
 
 // SubsystemStatus represents the health status of a subsystem.
+// It provides a graded status system for monitoring the health of
+// various components in the Gas Town workspace.
 type SubsystemStatus int
 
 const (
-	SubsystemHealthy SubsystemStatus = iota
-	SubsystemWarning
-	SubsystemError
-	SubsystemUnknown
+	SubsystemHealthy  SubsystemStatus = iota // Subsystem is operating normally
+	SubsystemWarning                         // Subsystem has issues but is functional
+	SubsystemError                           // Subsystem is not operating correctly
+	SubsystemUnknown                         // Subsystem status could not be determined
 )
 
+// String returns the string representation of the subsystem status.
+// Possible values are "healthy", "warning", "error", or "unknown".
 func (s SubsystemStatus) String() string {
 	switch s {
 	case SubsystemHealthy:
@@ -32,7 +36,8 @@ func (s SubsystemStatus) String() string {
 	}
 }
 
-// Badge returns a colored badge for the status.
+// Badge returns a colored unicode badge symbol for the status.
+// Returns ● for healthy, ⚠ for warning, ✗ for error, ? for unknown.
 func (s SubsystemStatus) Badge() string {
 	switch s {
 	case SubsystemHealthy:
@@ -46,7 +51,9 @@ func (s SubsystemStatus) Badge() string {
 	}
 }
 
-// SubsystemHealth represents the health of a single subsystem.
+// SubsystemHealth represents the health status of a single subsystem.
+// It provides comprehensive information about a component's state including
+// status, messages, recommended actions, and metadata.
 type SubsystemHealth struct {
 	Name        string          // Display name (e.g., "Deacon", "Beads Sync")
 	Subsystem   string          // ID (e.g., "deacon", "beads_sync")
@@ -58,25 +65,36 @@ type SubsystemHealth struct {
 	Rig         string          // Rig name (for per-rig items)
 }
 
-// operatorItem wraps SubsystemHealth for sidebar selection
+// operatorItem wraps SubsystemHealth for sidebar selection.
+// It implements the Item interface for use with list selectors.
 type operatorItem struct {
 	h SubsystemHealth
 }
 
+// ID returns the subsystem ID (e.g., "deacon", "witness_perch").
 func (o operatorItem) ID() string     { return o.h.Subsystem }
+
+// Label returns the display label for the sidebar, including status badge.
 func (o operatorItem) Label() string  { return fmt.Sprintf("%s %s", o.h.Status.Badge(), o.h.Name) }
+
+// Status returns the string representation of the subsystem status.
 func (o operatorItem) Status() string { return o.h.Status.String() }
 
 // OperatorState holds the operator console state.
+// It contains aggregate health information for all monitored subsystems.
 type OperatorState struct {
-	Subsystems    []SubsystemHealth
-	LastRefresh   time.Time
-	HasIssues     bool
-	IssueCount    int
-	WarningCount  int
+	Subsystems    []SubsystemHealth // All monitored subsystems
+	LastRefresh   time.Time          // When the state was last refreshed
+	HasIssues     bool               // True if any subsystem has issues
+	IssueCount    int                // Number of subsystems in error state
+	WarningCount  int                // Number of subsystems in warning state
 }
 
 // BuildOperatorState builds the operator state from a snapshot.
+// It checks the health of deacon, beads sync, and per-rig components
+// (witness, refinery, hooks) and aggregates them into a single state.
+//
+// Returns an empty state if snap is nil.
 func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 	if snap == nil {
 		return &OperatorState{}
@@ -128,6 +146,8 @@ func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 }
 
 // buildDeaconHealth checks deacon/watchdog health.
+// It evaluates the operational state to determine if deacon is healthy,
+// in degraded mode, has watchdog issues, or has stale heartbeats.
 func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        "Deacon",
@@ -198,6 +218,8 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 }
 
 // buildBeadsSyncHealth checks beads sync status.
+// It verifies that the beads database is syncing correctly and reports
+// any load errors related to issues or hooked issues.
 func buildBeadsSyncHealth(snap *data.Snapshot) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        "Beads Sync",
@@ -231,6 +253,8 @@ func buildBeadsSyncHealth(snap *data.Snapshot) SubsystemHealth {
 }
 
 // buildWitnessHealth checks witness health for a rig.
+// It verifies the witness is configured and running, providing
+// appropriate actions if not.
 func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        fmt.Sprintf("[%s] Witness", rig.Name),
@@ -293,6 +317,8 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 }
 
 // buildRefineryHealth checks refinery health for a rig.
+// It verifies the refinery is configured and running, and checks the
+// merge queue for any conflicting MRs that need attention.
 func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        fmt.Sprintf("[%s] Refinery", rig.Name),
@@ -386,6 +412,8 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 }
 
 // buildHooksHealth checks for stale hooks in a rig.
+// It identifies agents that have hooked work but are not running,
+// which indicates stale hooks that may need attention.
 func buildHooksHealth(rig data.Rig) SubsystemHealth {
 	h := SubsystemHealth{
 		Name:        fmt.Sprintf("[%s] Hooks", rig.Name),
@@ -430,6 +458,9 @@ func buildHooksHealth(rig data.Rig) SubsystemHealth {
 }
 
 // RenderOperatorSection renders the operator console sidebar section.
+// It displays all subsystems with their status badges in a list format.
+// The selected item is highlighted when isActive is true.
+// Rendering is limited to maxLines to fit within the available space.
 func RenderOperatorSection(state *OperatorState, selection int, isActive bool, width, maxLines int) string {
 	if state == nil || len(state.Subsystems) == 0 {
 		return mutedStyle.Render("  Loading...")
@@ -462,6 +493,9 @@ func RenderOperatorSection(state *OperatorState, selection int, isActive bool, w
 }
 
 // RenderOperatorDetails renders the details panel for the operator console.
+// It shows a summary of all subsystems and detailed information about
+// the selected subsystem including status, message, details, and
+// recommended actions.
 func RenderOperatorDetails(state *OperatorState, selection int, width int) string {
 	var lines []string
 
@@ -536,6 +570,8 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 }
 
 // RenderOperatorEmptyState renders the empty/healthy state for operator section.
+// When there are no issues, it shows a healthy indicator. When issues exist,
+// it shows a loading indicator. When isActive, includes a refresh hint.
 func RenderOperatorEmptyState(state *OperatorState, isActive bool) string {
 	var lines []string
 
