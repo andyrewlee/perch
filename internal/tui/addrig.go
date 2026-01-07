@@ -1,3 +1,7 @@
+// Package tui provides terminal UI components for the Gas Town dashboard.
+//
+// This file implements the AddRigForm, an interactive form for adding new rigs
+// to the Gas Town workspace.
 package tui
 
 import (
@@ -6,7 +10,33 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// AddRigForm manages the add rig form state
+// AddRigForm manages the state and rendering of an interactive form for adding
+// a new rig to the Gas Town workspace.
+//
+// The form collects three pieces of information:
+//   - Name: The rig name (required)
+//   - URL: The git repository URL (required)
+//   - Prefix: The beads issue prefix (optional, derived from name if not provided)
+//
+// The form supports keyboard navigation:
+//   - Tab/Down: Move to next field
+//   - Shift+Tab/Up: Move to previous field
+//   - Enter: Submit form (when on last field)
+//   - Esc: Cancel form
+//
+// Example usage:
+//
+//	form := NewAddRigForm()
+//	// In Update method:
+//	if _, ok := msg.(tea.KeyMsg); ok {
+//	    cmd := form.Update(msg)
+//	    if form.IsSubmitted() {
+//	        name, url, prefix := form.Name(), form.URL(), form.Prefix()
+//	        // Proceed with rig creation
+//	    }
+//	}
+//	// In View method:
+//	return form.View(width, height)
 type AddRigForm struct {
 	inputs     []textinput.Model
 	focusIndex int
@@ -15,12 +45,16 @@ type AddRigForm struct {
 }
 
 const (
+	// addRigInputName is the index for the name input field.
 	addRigInputName = iota
+	// addRigInputURL is the index for the git URL input field.
 	addRigInputURL
+	// addRigInputPrefix is the index for the prefix input field.
 	addRigInputPrefix
 )
 
-// NewAddRigForm creates a new add rig form
+// NewAddRigForm creates and initializes a new AddRigForm with three input fields:
+// name, git URL, and optional prefix. The name field is focused by default.
 func NewAddRigForm() *AddRigForm {
 	inputs := make([]textinput.Model, 3)
 
@@ -52,37 +86,49 @@ func NewAddRigForm() *AddRigForm {
 	}
 }
 
-// Name returns the entered rig name
+// Name returns the value of the name input field.
 func (f *AddRigForm) Name() string {
 	return f.inputs[addRigInputName].Value()
 }
 
-// URL returns the entered git URL
+// URL returns the value of the git URL input field.
 func (f *AddRigForm) URL() string {
 	return f.inputs[addRigInputURL].Value()
 }
 
-// Prefix returns the entered prefix (may be empty)
+// Prefix returns the value of the prefix input field.
+// May be empty if the user chose not to specify a prefix.
 func (f *AddRigForm) Prefix() string {
 	return f.inputs[addRigInputPrefix].Value()
 }
 
-// IsValid returns true if required fields are filled
+// IsValid returns true if all required fields (name and URL) are filled.
+// The prefix field is optional and does not affect validation.
 func (f *AddRigForm) IsValid() bool {
 	return f.Name() != "" && f.URL() != ""
 }
 
-// IsSubmitted returns true if the form was submitted
+// IsSubmitted returns true if the form was submitted via Enter key.
+// When submitted, the form can be considered complete and values retrieved.
 func (f *AddRigForm) IsSubmitted() bool {
 	return f.submitted
 }
 
-// IsCancelled returns true if the form was cancelled
+// IsCancelled returns true if the form was cancelled via Escape key.
+// When cancelled, the form should be dismissed without processing values.
 func (f *AddRigForm) IsCancelled() bool {
 	return f.cancelled
 }
 
-// Update handles input events for the form
+// Update handles keyboard input events for the form.
+//
+// It supports the following keybindings:
+//   - Esc: Cancel the form (sets IsCancelled to true)
+//   - Enter: Submit the form if on the last field and valid (sets IsSubmitted to true)
+//   - Tab/Down: Move focus to the next field
+//   - Shift+Tab/Up: Move focus to the previous field
+//
+// Returns a Bubbletea command (typically a Focus/Blur command for input fields).
 func (f *AddRigForm) Update(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "esc":
@@ -130,7 +176,22 @@ func (f *AddRigForm) updateInputs(msg tea.KeyMsg) tea.Cmd {
 	return cmd
 }
 
-// View renders the form as an overlay
+// View renders the form as a centered overlay dialog.
+//
+// The overlay displays:
+//   - A title "Add New Rig"
+//   - Three labeled input fields (Name, Git URL, Prefix)
+//   - Validation messages for incomplete required fields
+//   - Help text showing keyboard shortcuts
+//
+// The overlay is automatically centered within the provided dimensions
+// and adjusts its size if the viewport is too small.
+//
+// Parameters:
+//   - width: The total width of the viewport
+//   - height: The total height of the viewport
+//
+// Returns the rendered form as a string suitable for display in the TUI.
 func (f *AddRigForm) View(width, height int) string {
 	// Calculate overlay dimensions
 	overlayWidth := 60
