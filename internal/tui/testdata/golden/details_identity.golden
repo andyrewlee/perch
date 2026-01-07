@@ -1,0 +1,20 @@
+╭──────────────────────────────────────────────╮
+│ Details                                      │
+│ Identity & Provenance                        │
+│ Who you are and what you've touched          │
+│                                              │
+│ Actor                                        │
+│ Name:     Test User                          │
+│ Username: testuser                           │
+│ Email:    test@example.com                   │
+│ Source:   git                                │
+│                                              │
+│ Recent Commits                               │
+│ abc123 Add initial implementation            │
+│ def456 Fix rendering bug                     │
+│                                              │
+│ Recent Beads                                 │
+│ ▶ gt-001 Implement auth                      │
+│ ○ gt-002 Fix bug                             │
+│                                              │
+╰──────────────────────────────────────────────╯
