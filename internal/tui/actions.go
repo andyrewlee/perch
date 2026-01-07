@@ -217,14 +217,16 @@ func (r *ActionRunner) RemoveWorktree(ctx context.Context, worktreePath string) 
 // CreateWork creates an issue and optionally slings it to a polecat.
 // Step 1: Create issue with bd create
 // Step 2: If not skipSling, sling to target with gt sling
-func (r *ActionRunner) CreateWork(ctx context.Context, title, issueType string, priority int, rig, target string, skipSling bool) error {
+func (r *ActionRunner) CreateWork(ctx context.Context, title, description, issueType string, priority int, rig, target string, skipSling bool) error {
 	// Step 1: Create the issue and capture the output
-	// Runs: bd create --title "..." --type <type> --priority <n> --json
-	output, err := r.runCommandWithOutput(ctx, "bd", "create",
-		"--title", title,
-		"--type", issueType,
-		"--priority", fmt.Sprintf("%d", priority),
-		"--json")
+	// Runs: bd create --title "..." --description "..." --type <type> --priority <n> --json
+	args := []string{"bd", "create", "--title", title}
+	if description != "" {
+		args = append(args, "--description", description)
+	}
+	args = append(args, "--type", issueType, "--priority", fmt.Sprintf("%d", priority), "--json")
+
+	output, err := r.runCommandWithOutput(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
 	}

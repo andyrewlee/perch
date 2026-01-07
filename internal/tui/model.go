@@ -1366,6 +1366,7 @@ func (m Model) handleCreateWorkFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if m.createWorkForm.IsSubmitted() {
 		title := m.createWorkForm.Title()
+		description := m.createWorkForm.Description()
 		issueType := m.createWorkForm.Type()
 		priority := m.createWorkForm.Priority()
 		rig := m.createWorkForm.SelectedRig()
@@ -1374,7 +1375,7 @@ func (m Model) handleCreateWorkFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.createWorkForm = nil
 		m.setStatus("Creating issue '"+title+"'...", false)
-		return m, m.createWorkCmd(title, string(issueType), priority, rig, target, skipSling)
+		return m, m.createWorkCmd(title, description, string(issueType), priority, rig, target, skipSling)
 	}
 
 	return m, cmd
@@ -1477,12 +1478,12 @@ func (m *Model) populateTargets() {
 }
 
 // createWorkCmd creates a command that creates an issue and optionally slings it.
-func (m Model) createWorkCmd(title, issueType string, priority int, rig, target string, skipSling bool) tea.Cmd {
+func (m Model) createWorkCmd(title, description, issueType string, priority int, rig, target string, skipSling bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		err := m.actionRunner.CreateWork(ctx, title, issueType, priority, rig, target, skipSling)
+		err := m.actionRunner.CreateWork(ctx, title, description, issueType, priority, rig, target, skipSling)
 		return actionCompleteMsg{action: ActionCreateWork, target: title, err: err}
 	}
 }
