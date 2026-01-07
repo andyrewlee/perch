@@ -1,0 +1,3 @@
+  ○ Refinery idle
+  Queue clear - work landing
+  Run 'gt done' to submit work

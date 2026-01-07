@@ -1,0 +1,4 @@
+  ◌ Refinery stopped
+  Select rig, press 'b' to boot
+  Queue clear - work landing
+  Run 'gt done' to submit work

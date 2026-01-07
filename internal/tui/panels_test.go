@@ -1247,3 +1247,201 @@ func TestRefineryRunning(t *testing.T) {
 		})
 	}
 }
+
+// ========== Golden Render Tests ==========
+
+func TestRenderAgentsList_GoldenNormal(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.AgentsLoading = false
+	state.Agents = []agentItem{
+		{a: data.Agent{Name: "witness", Address: "perch/witness", Running: true, HasWork: true}},
+		{a: data.Agent{Name: "refinery", Address: "perch/refinery", Running: true, HasWork: false}},
+		{a: data.Agent{Name: "furiosa", Address: "perch/polecats/furiosa", Running: true, HasWork: true, HookedBeadID: "pe-123"}},
+		{a: data.Agent{Name: "nux", Address: "perch/polecats/nux", Running: false, HasWork: false}},
+	}
+
+	items := make([]SelectableItem, len(state.Agents))
+	for i, a := range state.Agents {
+		items[i] = a
+	}
+
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderAgentsList(state, snap, items, true, 50, 20)
+	CheckGolden(t, "panel_agents_normal", result, DefaultGoldenOptions())
+}
+
+func TestRenderAgentsList_GoldenLoading(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.AgentsLoading = true
+
+	result := renderAgentsList(state, nil, nil, true, 50, 20)
+	CheckGolden(t, "panel_agents_loading", result, DefaultGoldenOptions())
+}
+
+func TestRenderAgentsList_GoldenServicesStopped(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.AgentsLoading = false
+
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: false,
+		},
+	}
+
+	result := renderAgentsList(state, snap, nil, true, 50, 20)
+	CheckGolden(t, "panel_agents_services_stopped", result, DefaultGoldenOptions())
+}
+
+func TestRenderMergeQueueList_GoldenEmpty(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.MQsLoading = false
+
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: true},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderMergeQueueList(state, snap, nil, nil, true, 50, 20)
+	CheckGolden(t, "panel_mergequeue_empty", result, DefaultGoldenOptions())
+}
+
+func TestRenderMergeQueueList_GoldenWithMRs(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.MQsLoading = false
+	state.MRs = []mrItem{
+		{mr: data.MergeRequest{ID: "1", Title: "Feature: Add golden tests", Status: "open", HasConflicts: false}, rig: "perch"},
+		{mr: data.MergeRequest{ID: "2", Title: "Fix: Handle nil snapshot", Status: "open", HasConflicts: true, NeedsRebase: false}, rig: "perch"},
+		{mr: data.MergeRequest{ID: "3", Title: "Refactor: Cleanup styles", Status: "draft", HasConflicts: false, NeedsRebase: true}, rig: "perch"},
+	}
+
+	items := make([]SelectableItem, len(state.MRs))
+	for i, m := range state.MRs {
+		items[i] = m
+	}
+
+	result := renderMergeQueueList(state, nil, nil, items, true, 50, 20)
+	CheckGolden(t, "panel_mergequeue_with_mrs", result, DefaultGoldenOptions())
+}
+
+func TestRenderMergeQueueList_GoldenRefineryStopped(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.MQsLoading = false
+
+	snap := &data.Snapshot{
+		Town: &data.TownStatus{
+			Agents: []data.Agent{
+				{Name: "refinery", Role: "refinery", Running: false},
+			},
+		},
+		OperationalState: &data.OperationalState{
+			WatchdogHealthy: true,
+		},
+	}
+
+	result := renderMergeQueueList(state, snap, nil, nil, true, 50, 20)
+	CheckGolden(t, "panel_mergequeue_refinery_stopped", result, DefaultGoldenOptions())
+}
+
+func TestRenderConvoysList_GoldenWithConvoys(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.ConvoysLoading = false
+	state.Convoys = []convoyItem{
+		{c: data.Convoy{ID: "cv-1", Title: "Implement feature X", Status: "active", Completed: 1, Total: 2}},
+		{c: data.Convoy{ID: "cv-2", Title: "Bug fixes batch", Status: "open", Completed: 0, Total: 3}},
+		{c: data.Convoy{ID: "cv-3", Title: "Refactor session", Status: "closed", Completed: 5, Total: 5}},
+	}
+
+	items := make([]SelectableItem, len(state.Convoys))
+	for i, c := range state.Convoys {
+		items[i] = c
+	}
+
+	result := renderConvoysList(state, nil, items, true, 50, 20)
+	CheckGolden(t, "panel_convoys_with_items", result, DefaultGoldenOptions())
+}
+
+func TestRenderConvoysList_GoldenEmpty(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.ConvoysLoading = false
+	state.Convoys = []convoyItem{}
+
+	result := renderConvoysList(state, nil, nil, true, 50, 20)
+	CheckGolden(t, "panel_convoys_empty", result, DefaultGoldenOptions())
+}
+
+func TestRenderBeadsList_GoldenWithIssues(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 5
+	state.Beads = []beadItem{
+		{issue: data.Issue{ID: "pe-001", Title: "Add golden render tests", Status: "open", IssueType: "task", Priority: 2}},
+		{issue: data.Issue{ID: "pe-002", Title: "Fix UI regression", Status: "in_progress", IssueType: "bug", Priority: 1}},
+		{issue: data.Issue{ID: "pe-003", Title: "Refactor data layer", Status: "hooked", IssueType: "feature", Priority: 2}},
+	}
+
+	items := make([]SelectableItem, len(state.Beads))
+	for i, b := range state.Beads {
+		items[i] = b
+	}
+
+	result := renderBeadsList(state, items, true, 50, 20)
+	CheckGolden(t, "panel_beads_with_issues", result, DefaultGoldenOptions())
+}
+
+func TestRenderBeadsList_GoldenEmpty(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 0
+	state.Beads = nil
+
+	result := renderBeadsList(state, nil, true, 50, 20)
+	CheckGolden(t, "panel_beads_empty", result, DefaultGoldenOptions())
+}
+
+func TestRenderBeadsList_GoldenAllClosed(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	state := NewSidebarState()
+	state.BeadsLoading = false
+	state.BeadsScope = BeadsScopeRig
+	state.BeadsTotalCount = 5
+	state.Beads = nil // All filtered out (closed)
+
+	result := renderBeadsList(state, nil, true, 50, 20)
+	CheckGolden(t, "panel_beads_all_closed", result, DefaultGoldenOptions())
+}

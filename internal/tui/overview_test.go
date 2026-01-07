@@ -194,3 +194,90 @@ func TestLegendContainsStatusSymbols(t *testing.T) {
 		t.Error("expected stopped symbol (◌) in legend")
 	}
 }
+
+// ========== Golden Render Tests ==========
+
+func TestOverviewRenderer_GoldenFullTown(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	town := MockTown()
+	renderer := NewOverviewRenderer(town)
+
+	output := renderer.Render(100, 40)
+	CheckGolden(t, "overview_full_town", output, DefaultGoldenOptions())
+}
+
+func TestOverviewRenderer_GoldenEmptyTown(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	town := Town{Rigs: []Rig{}}
+	renderer := NewOverviewRenderer(town)
+
+	output := renderer.Render(100, 40)
+	CheckGolden(t, "overview_empty_town", output, DefaultGoldenOptions())
+}
+
+func TestOverviewRenderer_GoldenSingleRig(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	town := Town{
+		Rigs: []Rig{
+			{
+				Name: "perch",
+				Agents: []Agent{
+					{Name: "furiosa", Type: AgentPolecat, Status: StatusWorking},
+					{Name: "nux", Type: AgentPolecat, Status: StatusIdle},
+					{Name: "witness", Type: AgentWitness, Status: StatusWorking},
+					{Name: "refinery", Type: AgentRefinery, Status: StatusIdle},
+				},
+			},
+		},
+	}
+	renderer := NewOverviewRenderer(town)
+
+	output := renderer.Render(100, 40)
+	CheckGolden(t, "overview_single_rig", output, DefaultGoldenOptions())
+}
+
+func TestOverviewRenderer_GoldenAllStopped(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	town := Town{
+		Rigs: []Rig{
+			{
+				Name: "perch",
+				Agents: []Agent{
+					{Name: "furiosa", Type: AgentPolecat, Status: StatusStopped},
+					{Name: "witness", Type: AgentWitness, Status: StatusStopped},
+					{Name: "refinery", Type: AgentRefinery, Status: StatusStopped},
+				},
+			},
+		},
+	}
+	renderer := NewOverviewRenderer(town)
+
+	output := renderer.Render(100, 40)
+	CheckGolden(t, "overview_all_stopped", output, DefaultGoldenOptions())
+}
+
+func TestOverviewRenderer_GoldenMixedStatus(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	town := Town{
+		Rigs: []Rig{
+			{
+				Name: "perch",
+				Agents: []Agent{
+					{Name: "furiosa", Type: AgentPolecat, Status: StatusWorking},
+					{Name: "nux", Type: AgentPolecat, Status: StatusIdle},
+					{Name: "slit", Type: AgentPolecat, Status: StatusAttention},
+					{Name: "toast", Type: AgentPolecat, Status: StatusStopped},
+				},
+			},
+		},
+	}
+	renderer := NewOverviewRenderer(town)
+
+	output := renderer.Render(100, 40)
+	CheckGolden(t, "overview_mixed_status", output, DefaultGoldenOptions())
+}

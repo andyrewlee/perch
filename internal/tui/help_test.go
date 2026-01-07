@@ -142,3 +142,25 @@ func TestFooterShowsHelpHint(t *testing.T) {
 		t.Error("expected footer to show help key hint")
 	}
 }
+
+// ========== Golden Render Tests ==========
+
+func TestHelpOverlay_GoldenKeyboardShortcuts(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	km := DefaultKeyMap()
+	help := NewHelpOverlay(km)
+
+	output := help.Render(80, 40)
+	CheckGolden(t, "help_keyboard_shortcuts", output, DefaultGoldenOptions())
+}
+
+func TestHelpOverlay_GoldenSmallTerminal(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	km := DefaultKeyMap()
+	help := NewHelpOverlay(km)
+
+	output := help.Render(50, 30)
+	CheckGolden(t, "help_small_terminal", output, DefaultGoldenOptions())
+}
