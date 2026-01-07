@@ -2,26 +2,33 @@ package tui
 
 import "github.com/charmbracelet/bubbles/key"
 
-// KeyMap defines all keybindings for the TUI
+// KeyMap defines all keybindings for the TUI.
 type KeyMap struct {
-	// Navigation
-	Left      key.Binding
-	Right     key.Binding
-	Up        key.Binding
-	Down      key.Binding
+	// Left moves to the previous panel.
+	Left key.Binding
+	// Right moves to the next panel.
+	Right key.Binding
+	// Up moves up within the current panel.
+	Up key.Binding
+	// Down moves down within the current panel.
+	Down key.Binding
+	// NextPanel cycles to the next panel (tab).
 	NextPanel key.Binding
+	// PrevPanel cycles to the previous panel (shift+tab).
 	PrevPanel key.Binding
 
-	// Selection
+	// Select activates the selected item.
 	Select key.Binding
 
-	// Actions
+	// Refresh reloads the current view.
 	Refresh key.Binding
-	Help    key.Binding
-	Quit    key.Binding
+	// Help toggles the help screen.
+	Help key.Binding
+	// Quit exits the application.
+	Quit key.Binding
 }
 
-// DefaultKeyMap returns the default keybindings
+// DefaultKeyMap returns the default keybindings configured for the TUI.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Left: key.NewBinding(
@@ -67,12 +74,14 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
-// ShortHelp returns keybindings to show in the mini help view
+// ShortHelp returns keybindings to show in the mini help view.
+// It implements the help.KeyMap interface.
 func (k KeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Help, k.Quit}
 }
 
-// FullHelp returns keybindings for the expanded help view
+// FullHelp returns keybindings for the expanded help view.
+// It implements the help.KeyMap interface.
 func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
