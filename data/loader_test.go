@@ -3,6 +3,7 @@ package data
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -791,3 +792,161 @@ func TestStoreRefresh(t *testing.T) {
 	t.Logf("Open issues: %d", len(store.OpenIssues()))
 	t.Logf("Last refresh: %s", store.LastRefresh().Format(time.RFC3339))
 }
+
+func TestLoadRoutes(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "perch-routes-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create .beads directory
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create .beads dir: %v", err)
+	}
+
+	// Write test routes.jsonl
+	routesPath := filepath.Join(beadsDir, "routes.jsonl")
+	testContent := `{"prefix":"hq-","path":"."}
+{"prefix":"pe-","path":"perch"}
+{"prefix":"gt-","path":"roles"}
+`
+	if err := os.WriteFile(routesPath, []byte(testContent), 0644); err != nil {
+		t.Fatalf("failed to write routes.jsonl: %v", err)
+	}
+
+	// Create loader and load routes
+	loader := NewLoader(tmpDir)
+	ctx := context.Background()
+
+	routes, err := loader.LoadRoutes(ctx)
+	if err != nil {
+		t.Fatalf("LoadRoutes: %v", err)
+	}
+
+	// Verify routes
+	if len(routes) != 3 {
+		t.Errorf("expected 3 routes, got %d", len(routes))
+	}
+
+	// Check first route
+	if routes[0].Prefix != "hq-" || routes[0].Path != "." {
+		t.Errorf("route[0] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
+			routes[0].Prefix, routes[0].Path, "hq-", ".")
+	}
+
+	// Check second route
+	if routes[1].Prefix != "pe-" || routes[1].Path != "perch" {
+		t.Errorf("route[1] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
+			routes[1].Prefix, routes[1].Path, "pe-", "perch")
+	}
+
+	// Check third route
+	if routes[2].Prefix != "gt-" || routes[2].Path != "roles" {
+		t.Errorf("route[2] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
+			routes[2].Prefix, routes[2].Path, "gt-", "roles")
+	}
+}
+
+func TestLoadRoutes_EmptyFile(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "perch-routes-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create .beads directory with empty routes.jsonl
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create .beads dir: %v", err)
+	}
+
+	routesPath := filepath.Join(beadsDir, "routes.jsonl")
+	if err := os.WriteFile(routesPath, []byte(""), 0644); err != nil {
+		t.Fatalf("failed to write routes.jsonl: %v", err)
+	}
+
+	loader := NewLoader(tmpDir)
+	ctx := context.Background()
+
+	routes, err := loader.LoadRoutes(ctx)
+	if err != nil {
+		t.Fatalf("LoadRoutes with empty file: %v", err)
+	}
+
+	if len(routes) != 0 {
+		t.Errorf("expected 0 routes from empty file, got %d", len(routes))
+	}
+}
+
+func TestLoadRoutes_NoFile(t *testing.T) {
+	// Create a temporary directory without routes.jsonl
+	tmpDir, err := os.MkdirTemp("", "perch-routes-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create empty .beads directory
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create .beads dir: %v", err)
+	}
+
+	loader := NewLoader(tmpDir)
+	ctx := context.Background()
+
+	routes, err := loader.LoadRoutes(ctx)
+	if err != nil {
+		t.Fatalf("LoadRoutes with no file: %v", err)
+	}
+
+	if len(routes) != 0 {
+		t.Errorf("expected 0 routes when file doesn't exist, got %d", len(routes))
+	}
+}
+
+func TestLoadRoutes_WithCommentsAndEmptyLines(t *testing.T) {
+	// Create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "perch-routes-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Create .beads directory
+	beadsDir := filepath.Join(tmpDir, ".beads")
+	if err := os.MkdirAll(beadsDir, 0755); err != nil {
+		t.Fatalf("failed to create .beads dir: %v", err)
+	}
+
+	// Write routes.jsonl with comments and empty lines
+	routesPath := filepath.Join(beadsDir, "routes.jsonl")
+	testContent := `# This is a comment
+{"prefix":"hq-","path":"."}
+
+{"prefix":"pe-","path":"perch"}
+# Another comment
+{"prefix":"gt-","path":"roles"}
+`
+	if err := os.WriteFile(routesPath, []byte(testContent), 0644); err != nil {
+		t.Fatalf("failed to write routes.jsonl: %v", err)
+	}
+
+	loader := NewLoader(tmpDir)
+	ctx := context.Background()
+
+	routes, err := loader.LoadRoutes(ctx)
+	if err != nil {
+		t.Fatalf("LoadRoutes: %v", err)
+	}
+
+	// Should skip comments and empty lines, still get 3 routes
+	if len(routes) != 3 {
+		t.Errorf("expected 3 routes (comments/empty lines skipped), got %d", len(routes))
+	}
+}
+

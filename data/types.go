@@ -533,3 +533,10 @@ type BeadInfo struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	Action    string    `json:"action,omitempty"` // created, updated, closed
 }
+
+// Route represents a prefix-to-path routing entry from routes.jsonl.
+// Routes determine which rig's beads database handles a given prefix.
+type Route struct {
+	Prefix string `json:"prefix"` // e.g., "hq-", "pe-"
+	Path   string `json:"path"`   // Relative path from town root, e.g., "." or "perch"
+}

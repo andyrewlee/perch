@@ -1673,7 +1673,7 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 
 	switch state.Section {
 	case SectionIdentity:
-		return renderIdentityDetails(snap.Identity, snap.Mail, width)
+		return renderIdentityDetails(snap.Identity, snap.Mail, snap.Routes, width)
 	case SectionRigs:
 		if state.Selection >= 0 && state.Selection < len(state.Rigs) {
 			return renderRigDetails(state.Rigs[state.Selection], width)
@@ -2432,7 +2432,7 @@ func renderPluginDetails(p data.Plugin, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, width int) string {
+func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes []data.Route, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Identity & Provenance"))
 	lines = append(lines, mutedStyle.Render("Who you are and what you've touched"))
@@ -2467,6 +2467,16 @@ func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, width int
 		}
 		if id.CurrentRole != "" {
 			lines = append(lines, fmt.Sprintf("Role:     %s", id.CurrentRole))
+		}
+	}
+
+	// Routes (beads prefix routing)
+	if len(routes) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Beads Routes"))
+		lines = append(lines, mutedStyle.Render("Prefix routing (routes.jsonl)"))
+		for _, r := range routes {
+			lines = append(lines, fmt.Sprintf("%s → %s", mutedStyle.Render(r.Prefix), r.Path))
 		}
 	}
 
