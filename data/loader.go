@@ -974,7 +974,7 @@ type Snapshot struct {
 	Lifecycle        *LifecycleLog
 	OperationalState *OperationalState
 	DoctorReport     *DoctorReport
-	Routes           []Route // Beads prefix routing from routes.jsonl
+	Routes           *Routes // Beads prefix-to-location routing table
 	LoadedAt         time.Time
 	Errors           []error // Deprecated: use LoadErrors for structured error info
 	LoadErrors       []LoadError          // Structured errors with source context
@@ -1182,15 +1182,15 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			snap.Plugins = plugins
 			markSuccess("plugins")
 		}
+	}
 
-		// Load routes (beads prefix routing)
-		routes, err := l.LoadRoutes(ctx)
-		if err != nil {
-			addError("routes", "load routes.jsonl", err)
-		} else {
-			snap.Routes = routes
-			markSuccess("routes")
-		}
+	// Load beads routing table (fast file read)
+	routes, err := l.LoadRoutes()
+	if err != nil {
+		addError("routes", "read ~/.gt/.beads/routes.jsonl", err)
+	} else {
+		snap.Routes = routes
+		markSuccess("routes")
 	}
 
 	// Load identity (requires town status and issues)
@@ -1608,4 +1608,43 @@ func (l *Loader) SaveRigSettings(ctx context.Context, settings *RigSettings) err
 	}
 
 	return nil
+}
+
+// LoadRoutes loads the beads routing table from ~/gt/.beads/routes.jsonl.
+// Each line is a JSON object with "prefix", "location", and optional "rig" fields.
+// Returns empty routes if the file doesn't exist (not an error).
+func (l *Loader) LoadRoutes() (*Routes, error) {
+	routesPath := filepath.Join(l.TownRoot, ".beads", "routes.jsonl")
+
+	data, err := os.ReadFile(routesPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No routes file yet - return empty routes
+			return &Routes{Entries: make(map[string]BeadRoute)}, nil
+		}
+		return nil, fmt.Errorf("reading routes: %w", err)
+	}
+
+	routes := &Routes{Entries: make(map[string]BeadRoute)}
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var route BeadRoute
+		if err := json.Unmarshal(line, &route); err != nil {
+			// Skip invalid lines
+			continue
+		}
+		if route.Prefix != "" {
+			routes.Entries[route.Prefix] = route
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("parsing routes: %w", err)
+	}
+
+	return routes, nil
 }

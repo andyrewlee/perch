@@ -574,9 +574,17 @@ type BeadInfo struct {
 	Action    string    `json:"action,omitempty"` // created, updated, closed
 }
 
-// Route represents a prefix-to-path routing entry from routes.jsonl.
-// Routes determine which rig's beads database handles a given prefix.
-type Route struct {
-	Prefix string `json:"prefix"` // e.g., "hq-", "pe-"
-	Path   string `json:"path"`   // Relative path from town root, e.g., "." or "perch"
+// BeadRoute represents a prefix-to-location mapping for beads routing.
+// Loaded from ~/gt/.beads/routes.jsonl
+type BeadRoute struct {
+	Prefix  string `json:"prefix"`           // e.g., "hq-", "pe-", "gt-"
+	Location string `json:"location"`         // Absolute path to beads directory
+	Rig     string `json:"rig,omitempty"`     // Rig name if applicable (empty for town)
+}
+
+// Routes maps bead ID prefixes to their beads locations.
+// This enables commands like "bd show pe-123" to route to the correct rig.
+type Routes struct {
+	// Routes maps prefix (e.g., "pe-") to route info
+	Entries map[string]BeadRoute `json:"entries"`
 }
