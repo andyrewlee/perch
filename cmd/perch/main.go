@@ -1,3 +1,16 @@
+// Perch is the terminal UI for Gas Town.
+//
+// It provides a dashboard view of rigs, polecats, merge queues, convoys,
+// and issues. The TUI uses the Bubble Tea framework and operates on the
+// town root (~/gt by default, or GT_ROOT env var).
+//
+// Usage:
+//
+//	perch
+//
+// Environment Variables:
+//
+//	GT_ROOT - Path to the Gas Town workspace (default: ~/gt)
 package main
 
 import (
@@ -9,6 +22,9 @@ import (
 	"github.com/andyrewlee/perch/internal/tui"
 )
 
+// main is the entry point for the perch TUI.
+// It initializes the town root, creates the Bubble Tea program,
+// and runs it with an alternate screen.
 func main() {
 	// Default to ~/gt as town root, can be overridden via GT_ROOT env
 	townRoot := os.Getenv("GT_ROOT")
