@@ -1216,6 +1216,16 @@ func (s *Snapshot) HooksDataStale() bool {
 	return false
 }
 
+// HooksCountStale returns true if the hooks count itself is unreliable.
+// This is only true when hooked issues failed to load (fallback to gt status value).
+// When watchdog is down but hooked issues loaded successfully, the count is accurate
+// (from beads DB), even though agent runtime states may be stale.
+func (s *Snapshot) HooksCountStale() bool {
+	// If we failed to load hooked issues, we're using stale data from gt status
+	// gt status only checks handoff beads, not hooked issues, so it's incomplete
+	return !s.HookedLoaded
+}
+
 // EnrichWithHookedBeads reconciles bead-based hook state with town status.
 // This updates:
 // - Summary.ActiveHooks to reflect actual hooked beads
