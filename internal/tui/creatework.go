@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -17,6 +18,16 @@ const (
 	StepSelectRig
 	StepSelectTarget
 	StepConfirm
+)
+
+// createWorkField represents which field is focused in issue details step
+type createWorkField int
+
+const (
+	fieldTitle createWorkField = iota
+	fieldDescription
+	fieldType
+	fieldPriority
 )
 
 // IssueType represents the type of issue to create
@@ -33,9 +44,11 @@ type CreateWorkForm struct {
 	step CreateWorkStep
 
 	// Issue details (step 1)
-	titleInput textinput.Model
-	issueType  IssueType
-	priority   int // 0-4
+	titleInput       textinput.Model
+	descriptionInput textarea.Model
+	focusedField     createWorkField
+	issueType        IssueType
+	priority         int // 0-4
 
 	// Rig selection (step 2)
 	rigs        []string
@@ -60,13 +73,21 @@ func NewCreateWorkForm(rigs []string) *CreateWorkForm {
 	titleInput.Width = 50
 	titleInput.Prompt = ""
 
+	descInput := textarea.New()
+	descInput.Placeholder = "Enter description (optional)..."
+	descInput.CharLimit = 2000
+	descInput.ShowLineNumbers = false
+	// Note: height/width will be set dynamically during rendering
+
 	return &CreateWorkForm{
-		step:       StepIssueDetails,
-		titleInput: titleInput,
-		issueType:  IssueTypeTask,
-		priority:   2,
-		rigs:       rigs,
-		rigIndex:   0,
+		step:             StepIssueDetails,
+		titleInput:       titleInput,
+		descriptionInput: descInput,
+		focusedField:     fieldTitle,
+		issueType:        IssueTypeTask,
+		priority:         2,
+		rigs:             rigs,
+		rigIndex:         0,
 	}
 }
 
@@ -78,6 +99,11 @@ func (f *CreateWorkForm) Step() CreateWorkStep {
 // Title returns the issue title
 func (f *CreateWorkForm) Title() string {
 	return strings.TrimSpace(f.titleInput.Value())
+}
+
+// Description returns the issue description
+func (f *CreateWorkForm) Description() string {
+	return strings.TrimSpace(f.descriptionInput.Value())
 }
 
 // Type returns the issue type
@@ -156,12 +182,52 @@ func (f *CreateWorkForm) Update(msg tea.KeyMsg) tea.Cmd {
 		return nil
 
 	case "enter":
-		return f.handleEnter()
+		// In textarea, Enter adds a new line unless Ctrl+Enter is pressed
+		if f.step == StepIssueDetails && f.focusedField == fieldDescription {
+			// Check for Ctrl+Enter to submit
+			if msg.Type == tea.KeyEnter && msg.Alt {
+				// Alt+Enter (or Ctrl+Enter depending on terminal) submits
+				return f.handleEnter()
+			}
+			// Otherwise, let textarea handle the Enter key for new lines
+		} else {
+			return f.handleEnter()
+		}
 
-	case "tab", "down", "j":
+	case "tab":
+		if f.step == StepIssueDetails {
+			// Move focus to next field
+			f.focusedField = (f.focusedField + 1) % 4
+			f.updateFocus()
+			return nil
+		}
 		return f.handleDown()
 
-	case "shift+tab", "up", "k":
+	case "shift+tab":
+		if f.step == StepIssueDetails {
+			// Move focus to previous field
+			f.focusedField = (f.focusedField - 1 + 4) % 4
+			f.updateFocus()
+			return nil
+		}
+		return f.handleUp()
+
+	case "down", "j":
+		if f.step == StepIssueDetails && f.focusedField == fieldDescription {
+			// Let textarea handle navigation
+			var cmd tea.Cmd
+			f.descriptionInput, cmd = f.descriptionInput.Update(msg)
+			return cmd
+		}
+		return f.handleDown()
+
+	case "up", "k":
+		if f.step == StepIssueDetails && f.focusedField == fieldDescription {
+			// Let textarea handle navigation
+			var cmd tea.Cmd
+			f.descriptionInput, cmd = f.descriptionInput.Update(msg)
+			return cmd
+		}
 		return f.handleUp()
 
 	case "left", "h":
@@ -179,14 +245,33 @@ func (f *CreateWorkForm) Update(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
-	// Pass to text input if in issue details step
+	// Pass to focused input if in issue details step
 	if f.step == StepIssueDetails {
 		var cmd tea.Cmd
-		f.titleInput, cmd = f.titleInput.Update(msg)
+		if f.focusedField == fieldTitle {
+			f.titleInput, cmd = f.titleInput.Update(msg)
+		} else if f.focusedField == fieldDescription {
+			f.descriptionInput, cmd = f.descriptionInput.Update(msg)
+		}
 		return cmd
 	}
 
 	return nil
+}
+
+// updateFocus manages focus state for inputs
+func (f *CreateWorkForm) updateFocus() {
+	switch f.focusedField {
+	case fieldTitle:
+		f.titleInput.Focus()
+		f.descriptionInput.Blur()
+	case fieldDescription:
+		f.titleInput.Blur()
+		f.descriptionInput.Focus()
+	case fieldType, fieldPriority:
+		f.titleInput.Blur()
+		f.descriptionInput.Blur()
+	}
 }
 
 func (f *CreateWorkForm) handleEnter() tea.Cmd {
@@ -274,8 +359,8 @@ func (f *CreateWorkForm) handleRight() tea.Cmd {
 
 // View renders the form as an overlay
 func (f *CreateWorkForm) View(width, height int) string {
-	overlayWidth := 65
-	overlayHeight := 20
+	overlayWidth := 70
+	overlayHeight := 30
 	if overlayWidth > width-4 {
 		overlayWidth = width - 4
 	}
@@ -311,22 +396,54 @@ func (f *CreateWorkForm) renderIssueDetails(width int) string {
 	progress := f.renderProgress()
 
 	// Title field
-	titleLabel := formLabelFocusedStyle.Render("Title")
-	titleInput := formInputFocusedStyle.Width(width - 4).Render(f.titleInput.View())
+	var titleLabel string
+	if f.focusedField == fieldTitle {
+		titleLabel = formLabelFocusedStyle.Render("Title")
+	} else {
+		titleLabel = formLabelStyle.Render("Title")
+	}
+	titleInput := formInputStyle.Width(width - 4).Render(f.titleInput.View())
+	if f.focusedField == fieldTitle {
+		titleInput = formInputFocusedStyle.Width(width - 4).Render(f.titleInput.View())
+	}
+
+	// Description field
+	var descLabel string
+	if f.focusedField == fieldDescription {
+		descLabel = formLabelFocusedStyle.Render("Description (optional)")
+	} else {
+		descLabel = formLabelStyle.Render("Description (optional)")
+	}
+	// Textarea width is set dynamically per render
+	descInput := formInputStyle.Render(f.descriptionInput.View())
+	if f.focusedField == fieldDescription {
+		descInput = formInputFocusedStyle.Render(f.descriptionInput.View())
+	}
 
 	// Type selector
-	typeLabel := formLabelStyle.Render("Type (h/l to change)")
+	var typeLabel string
+	if f.focusedField == fieldType {
+		typeLabel = formLabelFocusedStyle.Render("Type (Tab: next field, h/l: change)")
+	} else {
+		typeLabel = formLabelStyle.Render("Type (Tab to focus, h/l: change)")
+	}
 	typeOptions := f.renderTypeSelector()
 
 	// Priority selector
-	priorityLabel := formLabelStyle.Render("Priority (1-5 to set)")
+	var priorityLabel string
+	if f.focusedField == fieldPriority {
+		priorityLabel = formLabelFocusedStyle.Render("Priority (1-5 to set, Tab: next)")
+	} else {
+		priorityLabel = formLabelStyle.Render("Priority (1-5 to set)")
+	}
 	priorityOptions := f.renderPrioritySelector()
 
-	help := mutedStyle.Render("Enter: next step | h/l: change type | 1-5: set priority | Esc: cancel")
+	help := mutedStyle.Render("Tab: next field | Enter: next step | h/l: change type | 1-5: priority | Esc: cancel")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		title, progress, "",
 		titleLabel, titleInput, "",
+		descLabel, descInput, "",
 		typeLabel, typeOptions, "",
 		priorityLabel, priorityOptions, "",
 		help,
@@ -409,6 +526,18 @@ func (f *CreateWorkForm) renderConfirmation(width int) string {
 	lines = append(lines, formLabelStyle.Render("Summary:"))
 	lines = append(lines, "")
 	lines = append(lines, fmt.Sprintf("  Title:    %s", f.Title()))
+
+	// Show description if provided
+	desc := f.Description()
+	if desc != "" {
+		// Truncate description if too long
+		maxDescLen := 60
+		if len(desc) > maxDescLen {
+			desc = desc[:maxDescLen-3] + "..."
+		}
+		lines = append(lines, fmt.Sprintf("  Desc:     %s", desc))
+	}
+
 	lines = append(lines, fmt.Sprintf("  Type:     %s", f.issueType))
 	lines = append(lines, fmt.Sprintf("  Priority: P%d", f.priority))
 
