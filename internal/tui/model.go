@@ -57,6 +57,7 @@ type Model struct {
 	confirmDialog   *ConfirmDialog
 	addRigForm      *AddRigForm
 	createWorkForm  *CreateWorkForm
+	beadsForm       *BeadsForm
 	inputDialog     *InputDialog
 	presetNudgeMenu *PresetNudgeMenu
 
@@ -476,6 +477,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCreateWorkFormKey(msg)
 	}
 
+	// Handle beads form
+	if m.beadsForm != nil {
+		return m.handleBeadsFormKey(msg)
+	}
+
 	// Handle rig settings form
 	if m.rigSettingsForm != nil {
 		return m.handleRigSettingsFormKey(msg)
@@ -509,6 +515,29 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadData
 
 	case "b":
+		// Context-dependent: Beads form (Beads section) or boot rig (Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			// Open beads form for create or edit
+			var selectedBead *data.Issue
+			if m.sidebar.Selection >= 0 && m.sidebar.Selection < len(m.sidebar.Beads) {
+				selectedBead = &m.sidebar.Beads[m.sidebar.Selection].issue
+			}
+
+			if selectedBead != nil {
+				// Edit mode
+				m.beadsForm = NewBeadsFormEdit(
+					selectedBead.ID,
+					selectedBead.Title,
+					selectedBead.Description,
+					selectedBead.IssueType,
+					selectedBead.Priority,
+				)
+			} else {
+				// Create mode
+				m.beadsForm = NewBeadsFormCreate()
+			}
+			return m, nil
+		}
 		// Boot selected rig
 		if m.selectedRig == "" {
 			m.setStatus("No rig selected. Use j/k to select a rig.", true)
@@ -1207,6 +1236,38 @@ func (m Model) handleCreateWorkFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handleBeadsFormKey handles key presses when the beads form is shown.
+func (m Model) handleBeadsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd := m.beadsForm.Update(msg)
+
+	if m.beadsForm.IsCancelled() {
+		m.beadsForm = nil
+		m.setStatus("Bead form cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.beadsForm.IsSubmitted() {
+		title := m.beadsForm.Title()
+		description := m.beadsForm.Description()
+		issueType := string(m.beadsForm.Type())
+		priority := m.beadsForm.Priority()
+
+		if m.beadsForm.Mode() == BeadsModeEdit {
+			// Edit mode
+			id := m.beadsForm.EditID()
+			m.beadsForm = nil
+			m.setStatus("Updating bead '"+id+"'...", false)
+			return m, m.updateBeadCmd(id, title, description, issueType, priority)
+		}
+		// Create mode
+		m.beadsForm = nil
+		m.setStatus("Creating bead '"+title+"'...", false)
+		return m, m.createBeadCmd(title, description, issueType, priority)
+	}
+
+	return m, cmd
+}
+
 // openRigSettingsCmd loads settings and opens the settings form.
 func (m Model) openRigSettingsCmd(rigName string) tea.Cmd {
 	return func() tea.Msg {
@@ -1279,6 +1340,28 @@ func (m Model) createWorkCmd(title, issueType string, priority int, rig, target 
 
 		err := m.actionRunner.CreateWork(ctx, title, issueType, priority, rig, target, skipSling)
 		return actionCompleteMsg{action: ActionCreateWork, target: title, err: err}
+	}
+}
+
+// createBeadCmd creates a command that creates a new bead.
+func (m Model) createBeadCmd(title, description, issueType string, priority int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.CreateBead(ctx, title, description, issueType, priority)
+		return actionCompleteMsg{action: ActionCreateBead, target: title, err: err}
+	}
+}
+
+// updateBeadCmd creates a command that updates an existing bead.
+func (m Model) updateBeadCmd(id, title, description, issueType string, priority int) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.UpdateBead(ctx, id, title, description, issueType, priority)
+		return actionCompleteMsg{action: ActionEditBead, target: id, err: err}
 	}
 }
 
@@ -1590,6 +1673,10 @@ func actionName(action ActionType) string {
 		return "Restart session"
 	case ActionPresetNudge:
 		return "Nudge"
+	case ActionCreateBead:
+		return "Create bead"
+	case ActionEditBead:
+		return "Update bead"
 	default:
 		return "Action"
 	}
@@ -1694,6 +1781,10 @@ func (m Model) View() string {
 
 	if m.createWorkForm != nil {
 		return m.createWorkForm.View(m.width, m.height)
+	}
+
+	if m.beadsForm != nil {
+		return m.beadsForm.View(m.width, m.height)
 	}
 
 	if m.rigSettingsForm != nil {
@@ -2437,8 +2528,8 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
-		helpKeyStyle.Render("b") + "          Boot selected rig",
-		helpKeyStyle.Render("s") + "          Shutdown selected rig",
+		helpKeyStyle.Render("b") + "          Boot rig / Create-edit bead (beads)",
+		helpKeyStyle.Render("s") + "          Shutdown rig / Toggle scope (beads)",
 		helpKeyStyle.Render("d") + "          Delete selected rig",
 		helpKeyStyle.Render("o") + "          Open logs for agent",
 		"",
