@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,6 +43,31 @@ func (r *realRunner) Exec(ctx context.Context, workDir string, args ...string) (
 	return stdout.Bytes(), stderr.Bytes(), err
 }
 
+// execError wraps a command execution error with stderr for pattern matching.
+type execError struct {
+	cmd    string   // Command name (e.g., "bd", "gt")
+	args   []string // Full command arguments
+	err    error    // Original error
+	stderr string   // Stderr output for error pattern matching
+}
+
+func (e *execError) Error() string {
+	if e.stderr != "" {
+		return fmt.Sprintf("%s: %v: %s", e.cmd, e.err, e.stderr)
+	}
+	return fmt.Sprintf("%s: %v", e.cmd, e.err)
+}
+
+// Unwrap returns the underlying error for errors.Is/As.
+func (e *execError) Unwrap() error {
+	return e.err
+}
+
+// Stderr returns the stderr output for pattern matching.
+func (e *execError) Stderr() string {
+	return e.stderr
+}
+
 // Loader executes CLI commands and parses their JSON output.
 type Loader struct {
 	// TownRoot is the Gas Town root directory (where gt commands run).
@@ -63,10 +89,16 @@ func NewLoaderWithRunner(townRoot string, runner CommandRunner) *Loader {
 }
 
 // execJSON runs a command and unmarshals its JSON output into dst.
+// Returns an error that includes stderr for detailed error messages.
 func (l *Loader) execJSON(ctx context.Context, dst any, args ...string) error {
 	stdout, stderr, err := l.Runner.Exec(ctx, l.TownRoot, args...)
 	if err != nil {
-		return fmt.Errorf("%s: %w: %s", args[0], err, string(stderr))
+		return &execError{
+			cmd:    args[0],
+			args:   args,
+			err:    err,
+			stderr: string(stderr),
+		}
 	}
 
 	// Handle null/empty output
@@ -1127,6 +1159,11 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 			Command:    command,
 			Error:      err.Error(),
 			OccurredAt: now,
+		}
+		// Extract stderr if this is an execError
+		var execErr *execError
+		if errors.As(err, &execErr) {
+			loadErr.Stderr = execErr.Stderr()
 		}
 		mu.Lock()
 		snap.LoadErrors = append(snap.LoadErrors, loadErr)
