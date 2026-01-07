@@ -2253,8 +2253,10 @@ func (m Model) buildOverviewContent() string {
 	s := town.Summary
 	statsLine := fmt.Sprintf("%d rigs  %d polecats  %d crews  %d hooks active",
 		s.RigCount, s.PolecatCount, s.CrewCount, s.ActiveHooks)
-	// Add stale marker if hook data may be stale (watchdog down or hooked issues failed to load)
-	if m.snapshot.HooksDataStale() {
+	// Add stale marker if hooks count is unreliable (hooked issues failed to load)
+	// Note: When watchdog is down but hooked issues loaded successfully, the count
+	// is accurate (from beads DB), so we don't mark it as stale.
+	if m.snapshot.HooksCountStale() {
 		statsLine += " (stale)"
 	}
 	lines = append(lines, mutedStyle.Render(statsLine))

@@ -374,6 +374,70 @@ func TestHooksDataStale(t *testing.T) {
 	}
 }
 
+func TestHooksCountStale(t *testing.T) {
+	tests := []struct {
+		name     string
+		snap     *Snapshot
+		expected bool
+	}{
+		{
+			name: "hooked issues loaded successfully - not stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: true,
+				},
+				HookedLoaded: true,
+			},
+			expected: false,
+		},
+		{
+			name: "watchdog unhealthy but hooked issues loaded - count not stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: false,
+				},
+				HookedLoaded: true,
+			},
+			expected: false, // Count is accurate from beads DB
+		},
+		{
+			name: "hooked issues failed to load - count is stale",
+			snap: &Snapshot{
+				OperationalState: &OperationalState{
+					WatchdogHealthy: true,
+				},
+				HookedLoaded: false,
+			},
+			expected: true, // Using fallback gt status (incomplete)
+		},
+		{
+			name: "nil operational state, hooked issues loaded - not stale",
+			snap: &Snapshot{
+				OperationalState: nil,
+				HookedLoaded:     true,
+			},
+			expected: false,
+		},
+		{
+			name: "nil operational state, failed load - stale",
+			snap: &Snapshot{
+				OperationalState: nil,
+				HookedLoaded:     false,
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.snap.HooksCountStale()
+			if got != tt.expected {
+				t.Errorf("HooksCountStale() = %v, expected %v", got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestRigSettingsValidation(t *testing.T) {
 	tests := []struct {
 		name        string
