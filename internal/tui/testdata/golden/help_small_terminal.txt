@@ -1,0 +1,27 @@
+
+
+ ╔══════════════════════════════════════════════╗
+ ║                                              ║
+ ║  Keyboard Shortcuts                          ║
+ ║                                              ║
+ ║                                              ║
+ ║  Navigation                                  ║
+ ║  k/↑       move up                           ║
+ ║  j/↓       move down                         ║
+ ║  h/←       panel left                        ║
+ ║  l/→       panel right                       ║
+ ║  tab         next panel                      ║
+ ║  S-tab       prev panel                      ║
+ ║                                              ║
+ ║  Actions                                     ║
+ ║  enter       select                          ║
+ ║  r           refresh                         ║
+ ║                                              ║
+ ║  General                                     ║
+ ║  ?           help                            ║
+ ║  q           quit                            ║
+ ║                                              ║
+ ║                                              ║
+ ║  Press ? or Esc to close                     ║
+ ║                                              ║
+ ╚══════════════════════════════════════════════╝

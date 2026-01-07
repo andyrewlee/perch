@@ -1,0 +1,9 @@
+╭────────────────────╮                                                        
+│ perch              │                                                        
+│ R◌ W◌ P◌           │                                                        
+│ 1P 1W 1R 3◌        │                                                        
+│                    │                                                        
+│                    │                                                        
+╰────────────────────╯                                                        
+                                                                              
+P=polecat  W=witness  R=refinery  |  ●=working  ○=idle  !=attention  ◌=stopped

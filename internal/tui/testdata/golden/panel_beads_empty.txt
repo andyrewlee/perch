@@ -1,0 +1,3 @@
+  No rig-level issues
+  Press 's' to switch scope
+  Press 'r' to refresh

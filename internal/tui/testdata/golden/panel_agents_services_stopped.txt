@@ -1,0 +1,3 @@
+  ◌ Services stopped
+  Deacon/witness/refinery not running
+  Select rig in sidebar, press 'b' to boot

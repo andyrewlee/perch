@@ -1,0 +1,3 @@
+> ○ [P2] Add golden render tests
+  ▶ [P1] Fix UI regression
+  ● [P2] Refactor data layer

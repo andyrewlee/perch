@@ -1,0 +1,4 @@
+  No open rig issues
+  (5 closed)
+  Press 's' to switch scope
+  Press 'r' to refresh

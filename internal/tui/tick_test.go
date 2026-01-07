@@ -194,3 +194,62 @@ func TestJoinHUDMultiple(t *testing.T) {
 		t.Errorf("joinHUD([a,b,c]) should return 5 elements (3 + 2 separators), got %d", len(result))
 	}
 }
+
+// ========== Golden Render Tests ==========
+
+func TestRenderHUD_GoldenDisconnected(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	m := NewTestModel(t)
+	m.width = 80
+	m.lastRefresh = time.Time{} // Zero time = disconnected
+
+	hud := m.renderHUD()
+	CheckGolden(t, "hud_disconnected", hud, DefaultGoldenOptions())
+}
+
+func TestRenderHUD_GoldenConnected(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	m := NewTestModel(t)
+	m.width = 80
+	m.lastRefresh = time.Now().Add(-30 * time.Second)
+
+	hud := m.renderHUD()
+	CheckGolden(t, "hud_connected", hud, DefaultGoldenOptions())
+}
+
+func TestRenderHUD_GoldenRefreshing(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	m := NewTestModel(t)
+	m.width = 80
+	m.isRefreshing = true
+	m.lastRefresh = time.Now().Add(-1 * time.Minute)
+
+	hud := m.renderHUD()
+	CheckGolden(t, "hud_refreshing", hud, DefaultGoldenOptions())
+}
+
+func TestRenderHUD_GoldenWithErrors(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	m := NewTestModel(t)
+	m.width = 80
+	m.errorCount = 3
+	m.lastRefresh = time.Now().Add(-2 * time.Minute)
+
+	hud := m.renderHUD()
+	CheckGolden(t, "hud_with_errors", hud, DefaultGoldenOptions())
+}
+
+func TestRenderFooter_GoldenNormal(t *testing.T) {
+	defer setupGoldenEnv()()
+
+	m := NewTestModel(t)
+	m.width = 80
+	m.lastRefresh = time.Now().Add(-45 * time.Second)
+
+	footer := m.renderFooter()
+	CheckGolden(t, "footer_normal", footer, DefaultGoldenOptions())
+}

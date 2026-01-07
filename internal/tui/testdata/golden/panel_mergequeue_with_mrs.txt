@@ -1,0 +1,5 @@
+  ◌ Services stopped / stale
+  Run 'gt boot <rig>' to start
+> [perch] Feature: Add golden tests
+  [perch]! Fix: Handle nil snapshot
+  [perch]~ Refactor: Cleanup styles

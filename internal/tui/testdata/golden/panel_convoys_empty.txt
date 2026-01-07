@@ -1,0 +1,2 @@
+  (no active convoys)
+  Press H to toggle history
