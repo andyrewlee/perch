@@ -2181,8 +2181,8 @@ func renderBeadDetails(issue data.Issue, state *SidebarState, width int, depende
 
 	// Quick actions hint
 	lines = append(lines, mutedStyle.Render("Filters: e=status t=type p=priority g=assignee x=clear"))
-	lines = append(lines, mutedStyle.Render("Press 'c' to add comment, 'd' to manage dependencies, 's' to switch scope (Rig/Town)"))
-	lines = append(lines, mutedStyle.Render("Press 'r' to refresh"))
+	lines = append(lines, mutedStyle.Render("Actions: b=edit c=comment d=deps z=close Z=reopen"))
+	lines = append(lines, mutedStyle.Render("Press 's' to switch scope (Rig/Town), 'r' to refresh"))
 
 	return strings.Join(lines, "\n")
 }
