@@ -1,0 +1,25 @@
+╭────────────────────────────────────────────────────────╮
+│ Details                                                │
+│ Beads Routing (Rig)                                    │
+│                                                        │
+│ Prefix Routes                                          │
+│ hq- → (town)                                           │
+│      /Users/test/.beads/                               │
+│ gt- → gastown                                          │
+│      gastown/rig                                       │
+│ pe- → perch                                            │
+│      perch/mayor/rig                                   │
+│                                                        │
+│ How Routing Works                                      │
+│ Bead IDs use prefixes that route to their rig:         │
+│                                                        │
+│   hq-xyz  → Town beads (~/gt/.beads/)                  │
+│   pe-xyz  → Perch rig beads                            │
+│   gt-xyz  → GasTown rig beads                          │
+│                                                        │
+│ Commands like 'bd show pe-123' use this                │
+│ routing to find the correct beads database.            │
+│                                                        │
+│ Press 's' to switch scope (Rig/Town)                   │
+│ Press 'r' to refresh                                   │
+╰────────────────────────────────────────────────────────╯
