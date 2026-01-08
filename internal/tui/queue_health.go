@@ -62,11 +62,13 @@ func (m QueueMR) AgeBadge() string {
 
 // QueueHealth represents the health status of a rig's merge queue.
 type QueueHealth struct {
-	RigName       string
-	State         RefineryState
-	LastMergeTime time.Time
-	MRs           []QueueMR
-	RefineryAgent string // Agent address for actions
+	RigName              string
+	State                RefineryState
+	LastMergeTime        time.Time
+	MRs                  []QueueMR
+	RefineryAgent        string // Agent address for actions
+	PatrolFormulasWarning string // Warning message if patrol formulas are missing
+	PatrolFormulasFix     string // Suggested fix for patrol formulas
 }
 
 // TimeSinceLastMerge returns formatted duration since last merge.
@@ -138,11 +140,16 @@ func (p *QueueHealthPanel) Render(width, height int) string {
 	// Last merge time
 	sections = append(sections, p.renderLastMerge())
 
+	// Patrol formulas warning (if applicable)
+	if warning := p.renderPatrolFormulasWarning(); warning != "" {
+		sections = append(sections, warning)
+	}
+
 	// Guidance banner
 	sections = append(sections, p.renderGuidance())
 
 	// MR list with age badges
-	sections = append(sections, p.renderMRList(height-8)) // Reserve space for header/guidance
+	sections = append(sections, p.renderMRList(height-10)) // Reserve more space for warning
 
 	// Actions hint
 	sections = append(sections, p.renderActionsHint())
@@ -172,6 +179,20 @@ func (p *QueueHealthPanel) renderLastMerge() string {
 		value = queueTimeStyle.Render(value + " ago")
 	}
 	return label + value
+}
+
+func (p *QueueHealthPanel) renderPatrolFormulasWarning() string {
+	if p.health.PatrolFormulasWarning == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(queuePatrolWarningStyle.Render("⚠ " + p.health.PatrolFormulasWarning))
+	if p.health.PatrolFormulasFix != "" {
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("  → " + p.health.PatrolFormulasFix))
+	}
+	return b.String()
 }
 
 func (p *QueueHealthPanel) renderGuidance() string {
@@ -314,4 +335,9 @@ var (
 
 	queueFailedStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FF0000"))
+
+	queuePatrolWarningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFAA00")).
+				Bold(true).
+				MarginTop(1)
 )

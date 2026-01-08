@@ -2,7 +2,10 @@
 // It executes gt/bd CLI commands and parses their JSON output.
 package data
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // TownStatus represents the complete status of a Gas Town workspace.
 // Loaded via: gt status --json
@@ -587,4 +590,64 @@ type BeadRoute struct {
 type Routes struct {
 	// Routes maps prefix (e.g., "pe-") to route info
 	Entries map[string]BeadRoute `json:"entries"`
+}
+
+// PatrolFormulasHealth represents the health status of patrol formula molecules.
+// These formulas are required for refinery/witness to auto-start patrols.
+type PatrolFormulasHealth struct {
+	// HasFormulas indicates if the formula files exist in .beads/formulas/
+	HasFormulas bool `json:"has_formulas"`
+
+	// HasMolecules indicates if the molecules exist in .beads/molecules.jsonl
+	HasMolecules bool `json:"has_molecules"`
+
+	// MissingFormulas lists the patrol formulas that are missing
+	MissingFormulas []string `json:"missing_formulas,omitempty"`
+
+	// FormulasPath is the path where formulas should exist
+	FormulasPath string `json:"formulas_path,omitempty"`
+
+	// MoleculesPath is the path to the molecules catalog
+	MoleculesPath string `json:"molecules_path,omitempty"`
+}
+
+// Status returns a human-readable status message.
+func (h *PatrolFormulasHealth) Status() string {
+	if h.HasMolecules {
+		return "OK"
+	}
+	if h.HasFormulas {
+		return "Formulas exist but not in catalog"
+	}
+	return "Missing"
+}
+
+// NeedsFix returns true if the patrol formulas need to be installed.
+func (h *PatrolFormulasHealth) NeedsFix() bool {
+	return !h.HasMolecules
+}
+
+// FixMessage returns a suggested fix for missing patrol formulas.
+func (h *PatrolFormulasHealth) FixMessage() string {
+	if !h.HasFormulas {
+		return "Run 'gt install' to restore formula files"
+	}
+	return "Run 'bd formula cook' to add formulas to molecule catalog"
+}
+
+// Details returns detailed information about the patrol formulas status.
+func (h *PatrolFormulasHealth) Details() []string {
+	var details []string
+	if len(h.MissingFormulas) > 0 {
+		for _, formula := range h.MissingFormulas {
+			details = append(details, fmt.Sprintf("Missing: %s", formula))
+		}
+	}
+	if !h.HasFormulas {
+		details = append(details, fmt.Sprintf("Formulas directory: %s", h.FormulasPath))
+	}
+	if !h.HasMolecules {
+		details = append(details, fmt.Sprintf("Molecules catalog: %s", h.MoleculesPath))
+	}
+	return details
 }

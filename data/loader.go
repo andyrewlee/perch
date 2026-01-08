@@ -655,6 +655,80 @@ func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *Op
 	return state
 }
 
+// requiredPatrolFormulas lists the patrol formula molecules required for auto-starting patrols.
+var requiredPatrolFormulas = []struct {
+	id       string
+	fileName string
+	title    string
+}{
+	{
+		id:       "mol-witness-patrol",
+		fileName: "mol-witness-patrol.formula.toml",
+		title:    "Witness Patrol",
+	},
+	{
+		id:       "mol-refinery-patrol",
+		fileName: "mol-refinery-patrol.formula.toml",
+		title:    "Refinery Patrol",
+	},
+}
+
+// LoadPatrolFormulasHealth checks if patrol formula molecules are available.
+// These formulas are required for refinery/witness to auto-start patrols.
+func (l *Loader) LoadPatrolFormulasHealth(ctx context.Context) *PatrolFormulasHealth {
+	health := &PatrolFormulasHealth{
+		FormulasPath:  filepath.Join(l.TownRoot, ".beads", "formulas"),
+		MoleculesPath: filepath.Join(l.TownRoot, ".beads", "molecules.jsonl"),
+	}
+
+	// Load existing molecules from catalog
+	existingMolecules := make(map[string]bool)
+	if content, err := os.ReadFile(health.MoleculesPath); err == nil {
+		scanner := strings.Split(string(content), "\n")
+		for _, line := range scanner {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "//") {
+				continue
+			}
+			var mol struct {
+				ID string `json:"id"`
+			}
+			if err := json.Unmarshal([]byte(line), &mol); err == nil {
+				existingMolecules[mol.ID] = true
+			}
+		}
+	}
+
+	// Check each required patrol formula
+	for _, formula := range requiredPatrolFormulas {
+		// Check if formula file exists
+		formulaPath := filepath.Join(l.TownRoot, ".beads", "formulas", formula.fileName)
+		if _, err := os.Stat(formulaPath); err == nil {
+			health.HasFormulas = true
+		}
+
+		// Check if molecule entry exists in catalog
+		moleculeExists := existingMolecules[formula.id]
+		if moleculeExists {
+			health.HasMolecules = true
+		}
+
+		// Track missing formulas
+		if !moleculeExists {
+			health.MissingFormulas = append(health.MissingFormulas, formula.title)
+		}
+	}
+
+	// If we have formulas but no molecules, we still need to report missing
+	if health.HasFormulas && !health.HasMolecules {
+		// At least one formula file exists but not in catalog
+	} else if !health.HasFormulas && !health.HasMolecules {
+		// Both missing
+	}
+
+	return health
+}
+
 
 // LoadWorktrees scans crew directories across all rigs to find cross-rig worktrees.
 func (l *Loader) LoadWorktrees(ctx context.Context, rigs []string) ([]Worktree, error) {
@@ -914,27 +988,28 @@ func (l *Loader) loadPluginInfo(pluginPath, name, scope string) Plugin {
 
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
-	Town             *TownStatus
-	Polecats         []Polecat
-	Convoys          []Convoy                  // Active/open convoys
-	ClosedConvoys    []Convoy                  // Recently landed convoys
-	ConvoyStatuses   map[string]*ConvoyStatus  // Detailed convoy status by ID
-	Worktrees        []Worktree
-	MergeQueues      map[string][]MergeRequest
-	Issues           []Issue
-	HookedIssues     []Issue // Issues with hooked or in_progress status (active work)
-	HookedLoaded     bool    // True if HookedIssues loaded successfully (false on error)
-	Mail             []MailMessage
-	Plugins          []Plugin
-	Identity         *Identity
-	Lifecycle        *LifecycleLog
-	OperationalState *OperationalState
-	DoctorReport     *DoctorReport
-	Routes           *Routes // Beads prefix-to-location routing table
-	LoadedAt         time.Time
-	Errors           []error // Deprecated: use LoadErrors for structured error info
-	LoadErrors       []LoadError          // Structured errors with source context
-	LastSuccess      map[string]time.Time // Per-source last successful load time
+	Town                 *TownStatus
+	Polecats             []Polecat
+	Convoys              []Convoy                  // Active/open convoys
+	ClosedConvoys        []Convoy                  // Recently landed convoys
+	ConvoyStatuses       map[string]*ConvoyStatus  // Detailed convoy status by ID
+	Worktrees            []Worktree
+	MergeQueues          map[string][]MergeRequest
+	Issues               []Issue
+	HookedIssues         []Issue // Issues with hooked or in_progress status (active work)
+	HookedLoaded         bool    // True if HookedIssues loaded successfully (false on error)
+	Mail                 []MailMessage
+	Plugins              []Plugin
+	Identity             *Identity
+	Lifecycle            *LifecycleLog
+	OperationalState     *OperationalState
+	DoctorReport          *DoctorReport
+	Routes               *Routes                 // Beads prefix-to-location routing table
+	PatrolFormulasHealth *PatrolFormulasHealth   // Health of patrol formula molecules
+	LoadedAt             time.Time
+	Errors               []error // Deprecated: use LoadErrors for structured error info
+	LoadErrors           []LoadError          // Structured errors with source context
+	LastSuccess          map[string]time.Time // Per-source last successful load time
 }
 
 // LoadAll loads all data sources into a snapshot.
@@ -1093,6 +1168,9 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 
 	// Load operational state (requires town status)
 	snap.OperationalState = l.LoadOperationalState(ctx, snap.Town)
+
+	// Load patrol formulas health (independent check)
+	snap.PatrolFormulasHealth = l.LoadPatrolFormulasHealth(ctx)
 
 	// Load convoy statuses (requires convoys to be loaded)
 	if len(snap.Convoys) > 0 {
