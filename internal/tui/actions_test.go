@@ -102,6 +102,38 @@ func TestConfirmDialog(t *testing.T) {
 	}
 }
 
+func TestIsTownLevelBead(t *testing.T) {
+	tests := []struct {
+		beadID string
+		want   bool
+	}{
+		// Town-level beads (hq- prefix)
+		{"hq-mayor", true},
+		{"hq-deacon", true},
+		{"hq-3c4", true},
+		{"hq-witness-role", true},
+		{"hq-", true}, // Has prefix (edge case but technically correct)
+		// Rig-level beads (other prefixes)
+		{"pe-001", false},
+		{"pe-m054", false},
+		{"gt-123", false},
+		{"test-abc", false},
+		// Edge cases
+		{"hq", false},      // Just prefix, no hyphen
+		{"Hq-abc", false},  // Wrong case
+		{"", false},        // Empty
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.beadID, func(t *testing.T) {
+			got := IsTownLevelBead(tt.beadID)
+			if got != tt.want {
+				t.Errorf("IsTownLevelBead(%q) = %v, want %v", tt.beadID, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAgentTypeFromRole(t *testing.T) {
 	tests := []struct {
 		role string

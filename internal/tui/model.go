@@ -1383,11 +1383,53 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		dialog := m.confirmDialog
 		m.confirmDialog = nil
+
+		// Handle town-level bead action confirmations with pending data
+		switch dialog.Action {
+		case ActionCreateBead:
+			if m.beadsForm != nil {
+				title := m.beadsForm.pendingTitle
+				description := m.beadsForm.pendingDescription
+				issueType := m.beadsForm.pendingType
+				priority := m.beadsForm.pendingPriority
+				m.beadsForm = nil
+				m.setStatus("Creating town-level bead '"+title+"'...", false)
+				return m, m.createBeadCmd(title, description, issueType, priority)
+			}
+		case ActionEditBead:
+			if m.beadsForm != nil {
+				id := m.beadsForm.pendingID
+				title := m.beadsForm.pendingTitle
+				description := m.beadsForm.pendingDescription
+				issueType := m.beadsForm.pendingType
+				priority := m.beadsForm.pendingPriority
+				m.beadsForm = nil
+				m.setStatus("Updating town-level bead '"+id+"'...", false)
+				return m, m.updateBeadCmd(id, title, description, issueType, priority)
+			}
+		case ActionAddComment:
+			if m.commentForm != nil {
+				issueID := m.commentForm.pendingIssueID
+				content := m.commentForm.pendingContent
+				m.commentForm = nil
+				m.setStatus("Adding comment to town-level bead '"+issueID+"'...", false)
+				return m, m.addCommentCmd(issueID, content)
+			}
+		}
+
+		// Default action handling
 		m.setStatus("Executing "+actionName(dialog.Action)+" on "+dialog.Target+"...", false)
 		return m, m.actionCmd(dialog.Action, dialog.Target)
 
 	case "n", "N", "esc":
 		m.confirmDialog = nil
+		// Clear pending form data on cancel
+		if m.beadsForm != nil && (m.beadsForm.pendingTitle != "" || m.beadsForm.pendingID != "") {
+			m.beadsForm = nil
+		}
+		if m.commentForm != nil && m.commentForm.pendingIssueID != "" {
+			m.commentForm = nil
+		}
 		m.setStatus("Action cancelled", false)
 		return m, statusExpireCmd(2 * time.Second)
 	}
@@ -1569,11 +1611,41 @@ func (m Model) handleBeadsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.beadsForm.Mode() == BeadsModeEdit {
 			// Edit mode
 			id := m.beadsForm.EditID()
+			// Town-level safety: editing town beads requires confirmation
+			if IsTownLevelBead(id) {
+				// Store form data for confirmation
+				m.beadsForm.pendingID = id
+				m.beadsForm.pendingTitle = title
+				m.beadsForm.pendingDescription = description
+				m.beadsForm.pendingType = issueType
+				m.beadsForm.pendingPriority = priority
+				m.confirmDialog = &ConfirmDialog{
+					Title:   "Confirm Town-Level Edit",
+					Message: "Edit town-level bead '" + id + "'? This affects all rigs. (y/n)",
+					Action:  ActionEditBead,
+					Target:  id,
+				}
+				return m, nil
+			}
 			m.beadsForm = nil
 			m.setStatus("Updating bead '"+id+"'...", false)
 			return m, m.updateBeadCmd(id, title, description, issueType, priority)
 		}
-		// Create mode
+		// Create mode - check if creating in town scope
+		if m.sidebar != nil && m.sidebar.BeadsScope == BeadsScopeTown {
+			// Store form data for confirmation
+			m.beadsForm.pendingTitle = title
+			m.beadsForm.pendingDescription = description
+			m.beadsForm.pendingType = issueType
+			m.beadsForm.pendingPriority = priority
+			m.confirmDialog = &ConfirmDialog{
+				Title:   "Confirm Town-Level Creation",
+				Message: "Create bead '" + title + "' in town scope? This affects all rigs. (y/n)",
+				Action:  ActionCreateBead,
+				Target:  title,
+			}
+			return m, nil
+		}
 		m.beadsForm = nil
 		m.setStatus("Creating bead '"+title+"'...", false)
 		return m, m.createBeadCmd(title, description, issueType, priority)
@@ -1595,6 +1667,19 @@ func (m Model) handleCommentFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.commentForm.IsSubmitted() {
 		issueID := m.commentForm.IssueID()
 		content := m.commentForm.Content()
+		// Town-level safety: commenting on town beads requires confirmation
+		if IsTownLevelBead(issueID) {
+			// Store form data for confirmation
+			m.commentForm.pendingIssueID = issueID
+			m.commentForm.pendingContent = content
+			m.confirmDialog = &ConfirmDialog{
+				Title:   "Confirm Town-Level Comment",
+				Message: "Add comment to town-level bead '" + issueID + "'? This affects all rigs. (y/n)",
+				Action:  ActionAddComment,
+				Target:  issueID,
+			}
+			return m, nil
+		}
 		m.commentForm = nil
 		m.setStatus("Adding comment to '"+issueID+"'...", false)
 		return m, m.addCommentCmd(issueID, content)
