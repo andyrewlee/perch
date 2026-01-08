@@ -678,7 +678,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Booting rig "+m.selectedRig+"...", false)
 		return m, m.actionCmd(ActionBootRig, m.selectedRig)
 
-	case "m":
+	case "M":
 		// Move/refile issue to different scope (only in Beads section)
 		if m.sidebar.Section != SectionBeads {
 			m.setStatus("Switch to Beads section (press 9) to refile issues", true)
