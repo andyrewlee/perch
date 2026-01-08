@@ -62,6 +62,11 @@ const (
 	ActionStopRefinery    // Stop a Refinery
 	ActionRestartRefineryAlt // Restart a Refinery (alternative naming for clarity)
 
+	// Merge queue actions
+	ActionMQRetry         // Retry a failed merge request
+	ActionMQViewDetails   // View detailed MR status (blockers, conflicts)
+	ActionMQOpenLogs      // Open logs for an MR
+
 	// Dependency management
 	ActionManageDeps     // Open dependency management dialog
 	ActionAddDependency  // Add a dependency (blocked-by relationship)
@@ -451,6 +456,24 @@ func (r *ActionRunner) StopRefinery(ctx context.Context, rig string) error {
 // Runs: gt refinery restart <rig>
 func (r *ActionRunner) RestartRefineryAgent(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "refinery", "restart", rig)
+}
+
+// MQRetry retries a failed merge request.
+// Runs: gt mq retry <mr-id> --rig <rig>
+func (r *ActionRunner) MQRetry(ctx context.Context, mrID, rig string) error {
+	return r.runCommand(ctx, "gt", "mq", "retry", mrID, "--rig", rig)
+}
+
+// MQViewDetails views detailed MR status (blockers, conflicts).
+// Runs: gt mq status <mr-id> --rig <rig>
+func (r *ActionRunner) MQViewDetails(ctx context.Context, mrID, rig string) error {
+	return r.runCommand(ctx, "gt", "mq", "status", mrID, "--rig", rig)
+}
+
+// MQOpenLogs opens logs for an MR.
+// Runs: gt logs --mr <mr-id>
+func (r *ActionRunner) MQOpenLogs(ctx context.Context, mrID string) error {
+	return r.runCommand(ctx, "gt", "logs", "--mr", mrID)
 }
 
 // runCommand executes a shell command and returns any error.

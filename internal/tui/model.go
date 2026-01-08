@@ -357,6 +357,15 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.StartRefinery(ctx, target)
 		case ActionStopRefinery:
 			err = m.actionRunner.StopRefinery(ctx, target)
+		case ActionMQRetry:
+			// input contains mrID, target contains rig
+			err = m.actionRunner.MQRetry(ctx, input, target)
+		case ActionMQViewDetails:
+			// input contains mrID, target contains rig
+			err = m.actionRunner.MQViewDetails(ctx, input, target)
+		case ActionMQOpenLogs:
+			// input contains mrID, target is ignored
+			err = m.actionRunner.MQOpenLogs(ctx, input)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -636,7 +645,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		// Context-dependent: Manual refresh OR restart subsystem (Operator section)
+		// Context-dependent: MR retry (MergeQueue), Manual refresh OR restart subsystem (Operator section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMergeQueue {
+			// Retry failed merge request
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+				m.setStatus("No merge request selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mr := m.sidebar.MRs[m.sidebar.Selection]
+			m.setStatus("Retrying MR "+mr.mr.ID+"...", false)
+			return m, m.actionCmdWithInput(ActionMQRetry, mr.rig, mr.mr.ID, "")
+		}
+		// Restart infrastructure (Operator section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
 			// Restart selected infrastructure subsystem
 			return m.handleInfrastructureRestart()
@@ -716,7 +736,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "d":
-		// Context-dependent: Manage dependencies (Beads section) or Delete rig (Rigs section)
+		// Context-dependent: MR details (MergeQueue), Manage dependencies (Beads section) or Delete rig (Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMergeQueue {
+			// View MR details (blockers, conflicts)
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+				m.setStatus("No merge request selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mr := m.sidebar.MRs[m.sidebar.Selection]
+			m.setStatus("Viewing MR "+mr.mr.ID+" details...", false)
+			return m, m.actionCmdWithInput(ActionMQViewDetails, mr.rig, mr.mr.ID, "")
+		}
+		// Manage dependencies (Beads section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
 			// Open dependency management dialog for selected bead
 			if len(m.sidebar.Beads) == 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
@@ -1018,6 +1049,16 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "l", "right":
+		// Open MR logs when in MergeQueue section, otherwise navigate to next section
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMergeQueue {
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+				m.setStatus("No merge request selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mr := m.sidebar.MRs[m.sidebar.Selection]
+			m.setStatus("Opening logs for MR "+mr.mr.ID+"...", false)
+			return m, m.actionCmdWithInput(ActionMQOpenLogs, "", mr.mr.ID, "")
+		}
 		if m.focus == PanelSidebar {
 			m.sidebar.NextSection()
 			m.syncSelectedRig()
@@ -2699,6 +2740,12 @@ func actionName(action ActionType) string {
 		return "Start refinery"
 	case ActionStopRefinery:
 		return "Stop refinery"
+	case ActionMQRetry:
+		return "Retry MR"
+	case ActionMQViewDetails:
+		return "MR details"
+	case ActionMQOpenLogs:
+		return "MR logs"
 	default:
 		return "Action"
 	}
@@ -2752,10 +2799,23 @@ func (m *Model) updateQueueHealth(snap *data.Snapshot) {
 		// Convert MergeRequests to QueueMRs
 		for _, mr := range mrs {
 			qmr := QueueMR{
-				ID:     mr.ID,
-				Title:  mr.Title,
-				Worker: mr.Worker,
-				Status: mr.Status,
+				ID:           mr.ID,
+				Title:        mr.Title,
+				Worker:       mr.Worker,
+				Status:       mr.Status,
+				Branch:       mr.Branch,
+				Priority:     mr.Priority,
+				HasConflicts: mr.HasConflicts,
+				NeedsRebase:  mr.NeedsRebase,
+				ConflictInfo: mr.ConflictInfo,
+			}
+			// Set IsClaimed if worker is assigned
+			if mr.Worker != "" {
+				qmr.IsClaimed = true
+			}
+			// Set TestsRunning if status is processing/test-running
+			if mr.Status == "processing" || mr.Status == "test-running" {
+				qmr.TestsRunning = true
 			}
 			// Age is calculated from current time if not set
 			health.MRs = append(health.MRs, qmr)

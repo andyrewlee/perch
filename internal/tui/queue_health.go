@@ -33,12 +33,20 @@ func (s RefineryState) String() string {
 
 // QueueMR represents a merge request in the queue with age info.
 type QueueMR struct {
-	ID        string
-	Title     string
-	Worker    string
-	Status    string
-	CreatedAt time.Time
-	Age       time.Duration
+	ID           string
+	Title        string
+	Worker       string
+	Status       string
+	Branch       string
+	Priority     int
+	CreatedAt    time.Time
+	Age          time.Duration
+	HasConflicts bool
+	NeedsRebase  bool
+	ConflictInfo string
+	// Detailed status flags
+	IsClaimed    bool // True if a worker has claimed this MR
+	TestsRunning bool // True if tests are currently running
 }
 
 // AgeBadge returns a colored badge based on MR age.
@@ -58,6 +66,31 @@ func (m QueueMR) AgeBadge() string {
 	default:
 		return queueStaleStyle.Render("stale")
 	}
+}
+
+// StatusIndicator returns visual status indicators for the MR.
+// Shows conflict, rebase, claimed, and tests-running status.
+func (m QueueMR) StatusIndicator() string {
+	var indicators []string
+
+	if m.HasConflicts {
+		indicators = append(indicators, queueConflictBadge.Render("⚠"))
+	} else if m.NeedsRebase {
+		indicators = append(indicators, queueRebaseBadge.Render("↻"))
+	}
+
+	if m.IsClaimed {
+		indicators = append(indicators, queueClaimedBadge.Render("⚙"))
+	}
+
+	if m.TestsRunning {
+		indicators = append(indicators, queueTestsBadge.Render("⧉"))
+	}
+
+	if len(indicators) == 0 {
+		return ""
+	}
+	return strings.Join(indicators, " ")
 }
 
 // QueueHealth represents the health status of a rig's merge queue.
@@ -251,13 +284,20 @@ func (p *QueueHealthPanel) renderMRList(maxLines int) string {
 }
 
 func (p *QueueHealthPanel) renderMRLine(mr QueueMR, selected bool) string {
-	// Format: [status] title (worker) [age badge]
+	// Format: [status] title (worker) [status indicators] [age badge]
 	status := p.formatStatus(mr.Status)
-	title := truncate(mr.Title, p.width-35)
+	title := truncate(mr.Title, p.width-40)
 	worker := mutedStyle.Render(fmt.Sprintf("(%s)", mr.Worker))
+	indicator := mr.StatusIndicator()
 	badge := mr.AgeBadge()
 
-	line := fmt.Sprintf("  %s %s %s %s", status, title, worker, badge)
+	// Build line with optional status indicator
+	var line string
+	if indicator != "" {
+		line = fmt.Sprintf("  %s %s %s %s %s", status, title, worker, indicator, badge)
+	} else {
+		line = fmt.Sprintf("  %s %s %s %s", status, title, worker, badge)
+	}
 
 	if selected {
 		return selectedItemStyle.Render("> " + line[2:])
@@ -281,7 +321,13 @@ func (p *QueueHealthPanel) formatStatus(status string) string {
 }
 
 func (p *QueueHealthPanel) renderActionsHint() string {
-	return mutedStyle.Render("\nn: nudge refinery | x: restart refinery")
+	hints := []string{
+		"n: nudge worker",
+		"r: retry MR",
+		"d: MR details",
+		"l: MR logs",
+	}
+	return mutedStyle.Render("\n" + strings.Join(hints, " | "))
 }
 
 // formatDuration formats a duration in human-readable form.
@@ -366,4 +412,18 @@ var (
 				Foreground(lipgloss.Color("#FFAA00")).
 				Bold(true).
 				MarginTop(1)
+
+	// Status indicator badges
+	queueConflictBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF6666")).
+				Bold(true)
+
+	queueRebaseBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFAA00"))
+
+	queueClaimedBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00AAFF"))
+
+	queueTestsBadge = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#88FF88"))
 )

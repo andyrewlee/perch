@@ -162,7 +162,7 @@ func TestQueueHealthPanelRender(t *testing.T) {
 		"Merge Requests:",
 		"Fix bug",
 		"nudge",
-		"restart",
+		"retry",
 	}
 
 	for _, check := range checks {
