@@ -55,14 +55,16 @@ func (s SubsystemStatus) Badge() string {
 // It provides comprehensive information about a component's state including
 // status, messages, recommended actions, and metadata.
 type SubsystemHealth struct {
-	Name        string          // Display name (e.g., "Deacon", "Beads Sync")
-	Subsystem   string          // ID (e.g., "deacon", "beads_sync")
-	Status      SubsystemStatus // Current health status
-	Message     string          // Short status message
-	Details     string          // Detailed info (shown in details panel)
-	Action      string          // Recommended action if unhealthy
-	LastChecked time.Time       // When this was last checked
-	Rig         string          // Rig name (for per-rig items)
+	Name         string          // Display name (e.g., "Deacon", "Beads Sync")
+	Subsystem    string          // ID (e.g., "deacon", "beads_sync")
+	Status       SubsystemStatus // Current health status
+	Message      string          // Short status message
+	Details      string          // Detailed info (shown in details panel)
+	Action       string          // Recommended action if unhealthy
+	LastChecked  time.Time       // When this was last checked
+	LastHeartbeat time.Time      // Last heartbeat from the service (if available)
+	LastError    string          // Last error message (if any)
+	Rig          string          // Rig name (for per-rig items)
 }
 
 // operatorItem wraps SubsystemHealth for sidebar selection.
@@ -168,11 +170,15 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 
 	state := snap.OperationalState
 
+	// Store last heartbeat for display
+	h.LastHeartbeat = state.LastDeaconHeartbeat
+
 	// Check degraded mode first
 	if state.DegradedMode {
 		h.Status = SubsystemError
 		h.Message = "Degraded mode"
 		h.Details = state.DegradedReason
+		h.LastError = state.DegradedReason
 		h.Action = state.DegradedAction
 		if h.Action == "" {
 			h.Action = "Check tmux availability"
@@ -185,6 +191,7 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 		h.Status = SubsystemError
 		h.Message = "Watchdog down"
 		h.Details = state.WatchdogReason
+		h.LastError = state.WatchdogReason
 		h.Action = state.WatchdogAction
 		if h.Action == "" {
 			h.Action = "Press 'b' to start deacon"
@@ -350,11 +357,12 @@ func buildMigrationHealth(snap *data.Snapshot) SubsystemHealth {
 // appropriate actions if not.
 func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
-		Name:        fmt.Sprintf("[%s] Witness", rig.Name),
-		Subsystem:   fmt.Sprintf("witness_%s", rig.Name),
-		Rig:         rig.Name,
-		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		Name:         fmt.Sprintf("[%s] Witness", rig.Name),
+		Subsystem:    fmt.Sprintf("witness_%s", rig.Name),
+		Rig:          rig.Name,
+		Status:       SubsystemHealthy,
+		LastChecked:  time.Now(),
+		LastHeartbeat: lastHeartbeat,
 	}
 
 	if !rig.HasWitness {
@@ -378,6 +386,7 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 		h.Status = SubsystemError
 		h.Message = "Not found"
 		h.Details = "Witness is configured but agent not found"
+		h.LastError = "Witness configured but agent not found"
 		h.Action = "Press 'b' to start witness"
 		return h
 	}
@@ -386,6 +395,7 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 		h.Status = SubsystemError
 		h.Message = "Stopped"
 		h.Details = "Witness session is not running"
+		h.LastError = "Witness session is not running"
 		h.Action = "Press 'b' to start witness"
 		return h
 	}
@@ -414,11 +424,12 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 // merge queue for any conflicting MRs that need attention.
 func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat time.Time) SubsystemHealth {
 	h := SubsystemHealth{
-		Name:        fmt.Sprintf("[%s] Refinery", rig.Name),
-		Subsystem:   fmt.Sprintf("refinery_%s", rig.Name),
-		Rig:         rig.Name,
-		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		Name:         fmt.Sprintf("[%s] Refinery", rig.Name),
+		Subsystem:    fmt.Sprintf("refinery_%s", rig.Name),
+		Rig:          rig.Name,
+		Status:       SubsystemHealthy,
+		LastChecked:  time.Now(),
+		LastHeartbeat: lastHeartbeat,
 	}
 
 	if !rig.HasRefinery {
@@ -442,6 +453,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 		h.Status = SubsystemError
 		h.Message = "Not found"
 		h.Details = "Refinery is configured but agent not found"
+		h.LastError = "Refinery configured but agent not found"
 		h.Action = "Press 'b' to start refinery"
 		return h
 	}
@@ -450,6 +462,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 		h.Status = SubsystemError
 		h.Message = "Stopped"
 		h.Details = "Refinery session is not running"
+		h.LastError = "Refinery session is not running"
 		h.Action = "Press 'b' to start refinery"
 		return h
 	}
@@ -627,7 +640,20 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 		// Status with badge
 		lines = append(lines, fmt.Sprintf("Status:  %s %s", sub.Status.Badge(), sub.Status.String()))
 		lines = append(lines, fmt.Sprintf("Message: %s", sub.Message))
+
+		// Last heartbeat (if available)
+		if !sub.LastHeartbeat.IsZero() {
+			age := time.Since(sub.LastHeartbeat)
+			lines = append(lines, fmt.Sprintf("Last heartbeat: %s ago", formatDuration(age)))
+		}
 		lines = append(lines, "")
+
+		// Last error (if any)
+		if sub.LastError != "" {
+			lines = append(lines, headerStyle.Render("Last Error"))
+			lines = append(lines, statusErrorStyle.Render("  "+sub.LastError))
+			lines = append(lines, "")
+		}
 
 		// Details
 		if sub.Details != "" {
