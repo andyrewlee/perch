@@ -437,9 +437,11 @@ func TestGolden_DetailsPanels(t *testing.T) {
 				Mail: []data.MailMessage{
 					{ID: "mail-001", From: "mayor", Subject: "Work assigned", Read: false},
 				},
-				Routes: []data.Route{
-					{Prefix: "hq-", Path: "."},
-					{Prefix: "pe-", Path: "perch"},
+				Routes: &data.Routes{
+					Entries: map[string]data.BeadRoute{
+						"hq-": {Prefix: "hq-", Location: "/Users/andrewlee/gt"},
+						"pe-": {Prefix: "pe-", Location: "/Users/andrewlee/gt/perch", Rig: "perch"},
+					},
 				},
 			},
 			width:  50,
