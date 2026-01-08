@@ -296,6 +296,102 @@ func (l *Loader) LoadInProgressIssues(ctx context.Context) ([]Issue, error) {
 	return issues, nil
 }
 
+// LoadIssueDependencies loads dependencies for a specific issue.
+// Returns both blocked-by (dependencies) and blocking (dependents) issues.
+func (l *Loader) LoadIssueDependencies(ctx context.Context, issueID string) (*IssueDependencies, error) {
+	result := &IssueDependencies{
+		IssueID:      issueID,
+		LastLoadedAt: time.Now(),
+	}
+
+	// Load blocked-by issues (dependencies)
+	// Command: bd dep list <issue-id>
+	var blockedBy []struct {
+		ID         string `json:"id"`
+		Title      string `json:"title"`
+		Status     string `json:"status"`
+		IssueType  string `json:"issue_type"`
+		Priority   int    `json:"priority"`
+		UpdatedAt  string `json:"updated_at"`
+		DepType    string `json:"dependency_type"`
+	}
+
+	stdout, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "dep", "list", issueID)
+	if err != nil {
+		// Dependency list may not be implemented yet, return empty result
+		result.LoadError = fmt.Errorf("listing dependencies: %w", err)
+		return result, nil
+	}
+
+	if err := json.Unmarshal(bytes.TrimSpace(stdout), &blockedBy); err != nil {
+		result.LoadError = fmt.Errorf("parsing dependencies: %w", err)
+		return result, nil
+	}
+
+	// Parse blocked-by and blocking from the output
+	for _, dep := range blockedBy {
+		updatedAt, _ := time.Parse(time.RFC3339, dep.UpdatedAt)
+		issueDep := IssueDependency{
+			ID:        dep.ID,
+			Title:     dep.Title,
+			Status:    dep.Status,
+			IssueType: dep.IssueType,
+			Priority:  dep.Priority,
+			UpdatedAt: updatedAt,
+		}
+
+		if dep.DepType == "blocks" {
+			// This issue is blocked by dep.ID
+			result.BlockedBy = append(result.BlockedBy, issueDep)
+		} else if dep.DepType == "blocked_by" {
+			// This issue blocks dep.ID
+			result.Blocking = append(result.Blocking, issueDep)
+		}
+	}
+
+	return result, nil
+}
+
+// AddDependency adds a dependency relationship between issues.
+// blockerID blocks blockedID (blockedID depends on blockerID).
+// Command: bd dep add <blocked-id> <blocker-id>
+func (l *Loader) AddDependency(ctx context.Context, blockedID, blockerID string) error {
+	_, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "dep", "add", blockedID, blockerID)
+	return err
+}
+
+// RemoveDependency removes a dependency relationship between issues.
+// Command: bd dep remove <blocked-id> <blocker-id>
+func (l *Loader) RemoveDependency(ctx context.Context, blockedID, blockerID string) error {
+	_, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "dep", "remove", blockedID, blockerID)
+	return err
+}
+
+// LoadIssueComments loads comments for a specific issue.
+// Command: bd comments <issue-id> --json
+func (l *Loader) LoadIssueComments(ctx context.Context, issueID string) (*IssueComments, error) {
+	result := &IssueComments{
+		IssueID:      issueID,
+		LastLoadedAt: time.Now(),
+	}
+
+	var comments []Comment
+	if err := l.execJSON(ctx, &comments, "bd", "comments", issueID, "--json"); err != nil {
+		result.LoadError = fmt.Errorf("loading comments: %w", err)
+		return result, nil
+	}
+
+	result.Comments = comments
+	return result, nil
+}
+
+// AddComment adds a comment to an issue.
+// Command: bd comments add <issue-id> <comment>
+func (l *Loader) AddComment(ctx context.Context, issueID, comment string) error {
+	_, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "comments", "add", issueID, comment)
+	return err
+}
+
 // LoadMail loads mail messages from the inbox.
 func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
 	var mail []MailMessage

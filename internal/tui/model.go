@@ -72,6 +72,16 @@ type Model struct {
 	selectedAgent  string
 	selectedConvoy string // Currently selected convoy ID
 	selectedPlugin string
+	selectedBeadID string // Currently selected bead ID
+
+	// Bead dependencies cache
+	beadDependencies    *data.IssueDependencies
+	beadDepsLoading     bool
+	beadDepsLoadError   error
+
+	// Bead comments cache
+	beadComments    *data.IssueComments
+	beadCommentsLoading bool
 
 	// Audit timeline for selected agent
 	auditTimeline       []data.AuditEntry
@@ -192,6 +202,18 @@ type rigSettingsSavedMsg struct {
 	err     error
 }
 
+type beadDependenciesLoadedMsg struct {
+	issueID      string
+	dependencies *data.IssueDependencies
+	err          error
+}
+
+type beadCommentsLoadedMsg struct {
+	issueID  string
+	comments *data.IssueComments
+	err      error
+}
+
 // Init implements tea.Model
 func (m Model) Init() tea.Cmd {
 	// If setup wizard is active, initialize it instead
@@ -232,6 +254,28 @@ func (m Model) loadAuditTimelineCmd(actor string) tea.Cmd {
 
 		entries, err := m.store.Loader().LoadAuditTimeline(ctx, actor, 20)
 		return auditTimelineMsg{actor: actor, entries: entries, err: err}
+	}
+}
+
+// loadBeadDependenciesCmd creates a command that loads dependencies for a bead.
+func (m Model) loadBeadDependenciesCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		deps, err := m.store.Loader().LoadIssueDependencies(ctx, issueID)
+		return beadDependenciesLoadedMsg{issueID: issueID, dependencies: deps, err: err}
+	}
+}
+
+// loadBeadCommentsCmd creates a command that loads comments for a bead.
+func (m Model) loadBeadCommentsCmd(issueID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		comments, err := m.store.Loader().LoadIssueComments(ctx, issueID)
+		return beadCommentsLoadedMsg{issueID: issueID, comments: comments, err: err}
 	}
 }
 
@@ -398,6 +442,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus("Settings saved for "+msg.rigName, false)
 		return m, tea.Batch(statusExpireCmd(3*time.Second), m.loadData)
+
+	case beadDependenciesLoadedMsg:
+		m.beadDepsLoading = false
+		if msg.err != nil {
+			m.beadDepsLoadError = msg.err
+			m.setStatus("Failed to load dependencies: "+msg.err.Error(), true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if msg.dependencies != nil {
+			m.beadDependencies = msg.dependencies
+		}
+		return m, nil
+
+	case beadCommentsLoadedMsg:
+		m.beadCommentsLoading = false
+		if msg.err != nil {
+			m.setStatus("Failed to load comments: "+msg.err.Error(), true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if msg.comments != nil {
+			m.beadComments = msg.comments
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -856,7 +923,9 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionRigs
 			m.sidebar.Selection = 0
-			m.syncSelection()
+			if cmd := m.syncSelection(); cmd != nil {
+				return m, cmd
+			}
 		}
 		return m, nil
 
@@ -1521,10 +1590,11 @@ func (m *Model) setStatus(text string, isError bool) {
 	m.statusMessage = &msg
 }
 
-// syncSelection updates selectedRig, selectedAgent, and selectedPlugin based on sidebar selection.
-func (m *Model) syncSelection() {
+// syncSelection updates selectedRig, selectedAgent, selectedPlugin, and selectedBeadID based on sidebar selection.
+// Returns a command if dependency loading needs to happen.
+func (m *Model) syncSelection() tea.Cmd {
 	if m.sidebar == nil {
-		return
+		return nil
 	}
 	switch m.sidebar.Section {
 	case SectionRigs:
@@ -1539,7 +1609,25 @@ func (m *Model) syncSelection() {
 		if item := m.sidebar.SelectedItem(); item != nil {
 			m.selectedPlugin = item.ID()
 		}
+	case SectionBeads:
+		if item := m.sidebar.SelectedItem(); item != nil {
+			newBeadID := item.ID()
+			// Load dependencies and comments if bead selection changed
+			if newBeadID != m.selectedBeadID {
+				m.selectedBeadID = newBeadID
+				m.beadDependencies = nil
+				m.beadDepsLoadError = nil
+				m.beadDepsLoading = true
+				m.beadComments = nil
+				m.beadCommentsLoading = true
+				return tea.Batch(
+					m.loadBeadDependenciesCmd(newBeadID),
+					m.loadBeadCommentsCmd(newBeadID),
+				)
+			}
+		}
 	}
+	return nil
 }
 
 // syncSelectedRig updates selectedRig when navigating in the Rigs section.
@@ -1615,7 +1703,7 @@ func (m *Model) syncSelectedAgent() tea.Cmd {
 
 // updateSelectedFromSidebar updates selectedRig, selectedAgent, and selectedPlugin based on sidebar.
 func (m *Model) updateSelectedFromSidebar() {
-	m.syncSelection()
+	_ = m.syncSelection()
 }
 
 // actionName returns a human-readable name for an action type.
@@ -1838,7 +1926,17 @@ func (m Model) renderLayout() string {
 		}
 	}
 
-	details := RenderDetails(m.sidebar, m.snapshot, auditState, detailsWidth, bodyHeight, m.focus == PanelDetails)
+	// Only pass dependencies when viewing a bead (SectionBeads)
+	var deps *data.IssueDependencies
+	if m.sidebar != nil && m.sidebar.Section == SectionBeads && m.selectedBeadID == m.beadDependencies.IssueID {
+		deps = m.beadDependencies
+	}
+	// Only pass comments when viewing a bead (SectionBeads)
+	var comments *data.IssueComments
+	if m.sidebar != nil && m.sidebar.Section == SectionBeads && m.selectedBeadID == m.beadComments.IssueID {
+		comments = m.beadComments
+	}
+	details := RenderDetails(m.sidebar, m.snapshot, auditState, detailsWidth, bodyHeight, m.focus == PanelDetails, deps, comments)
 	footer := m.renderFooter()
 
 	// Combine sidebar and details horizontally
