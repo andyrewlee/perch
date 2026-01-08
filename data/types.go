@@ -43,6 +43,14 @@ type Agent struct {
 	HookedBeadID string    `json:"hooked_bead_id,omitempty"` // ID of the hooked issue
 	HookedStatus string    `json:"hooked_status,omitempty"`  // Status of the hooked issue (hooked, in_progress)
 	HookedAt     time.Time `json:"hooked_at,omitempty"`      // When the issue was hooked (for age calculation)
+
+	// Town-level bead ID (post-migration, via gt migrate-agents)
+	// When set, this is the hq-prefixed ID that supersedes legacy agent bead IDs
+	TownBeadID string `json:"town_bead_id,omitempty"` // e.g., "hq-xxx"
+
+	// Deacon-assigned bead ID (legacy, may differ from town bead ID)
+	// Retained for provenance tracking during migration
+	DeaconBeadID string `json:"deacon_bead_id,omitempty"` // e.g., "gt-perch-polecat-ace"
 }
 
 // Rig represents a project container with workers and infrastructure.
