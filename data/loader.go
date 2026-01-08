@@ -620,12 +620,37 @@ func extractRecentBeads(issues []Issue, limit int) []BeadInfo {
 }
 
 // LoadOperationalState loads the operational state of the town.
-// This checks environment variables, deacon status, and agent health.
-func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus) *OperationalState {
+// This checks environment variables, deacon status, agent health, and legacy agent beads.
+func (l *Loader) LoadOperationalState(ctx context.Context, town *TownStatus, issues []Issue) *OperationalState {
 	state := &OperationalState{
 		WatchdogHealthy:       true, // Assume healthy unless proven otherwise
 		LastWitnessHeartbeat:  make(map[string]time.Time),
 		LastRefineryHeartbeat: make(map[string]time.Time),
+	}
+
+	// Check for legacy agent bead IDs (gt-mayor, gt-deacon) that need migration
+	hasLegacyMayor := false
+	hasLegacyDeacon := false
+	for _, issue := range issues {
+		if issue.ID == "gt-mayor" && issue.Status != "closed" {
+			hasLegacyMayor = true
+		}
+		if issue.ID == "gt-deacon" && issue.Status != "closed" {
+			hasLegacyDeacon = true
+		}
+	}
+	if hasLegacyMayor || hasLegacyDeacon {
+		state.MigrationNeeded = true
+		state.MigrationAction = "Run 'gt migrate-agents --execute' to migrate to hq-* beads"
+		var legacyAgents []string
+		if hasLegacyMayor {
+			legacyAgents = append(legacyAgents, "gt-mayor")
+		}
+		if hasLegacyDeacon {
+			legacyAgents = append(legacyAgents, "gt-deacon")
+		}
+		state.Issues = append(state.Issues,
+			fmt.Sprintf("Legacy agent beads detected: %s - migration recommended", strings.Join(legacyAgents, ", ")))
 	}
 
 	// Check GT_DEGRADED environment variable
@@ -1298,8 +1323,8 @@ func (l *Loader) LoadAll(ctx context.Context) *Snapshot {
 
 	wg.Wait()
 
-	// Load operational state (requires town status)
-	snap.OperationalState = l.LoadOperationalState(ctx, snap.Town)
+	// Load operational state (requires town status and issues for migration check)
+	snap.OperationalState = l.LoadOperationalState(ctx, snap.Town, snap.Issues)
 
 	// Load patrol formulas health (independent check)
 	snap.PatrolFormulasHealth = l.LoadPatrolFormulasHealth(ctx)

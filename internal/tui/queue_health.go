@@ -69,6 +69,8 @@ type QueueHealth struct {
 	RefineryAgent        string // Agent address for actions
 	PatrolFormulasWarning string // Warning message if patrol formulas are missing
 	PatrolFormulasFix     string // Suggested fix for patrol formulas
+	MigrationWarning      string // Warning message if legacy agent beads detected
+	MigrationFix          string // Suggested fix for migration
 }
 
 // TimeSinceLastMerge returns formatted duration since last merge.
@@ -145,6 +147,11 @@ func (p *QueueHealthPanel) Render(width, height int) string {
 		sections = append(sections, warning)
 	}
 
+	// Migration warning (if applicable)
+	if warning := p.renderMigrationWarning(); warning != "" {
+		sections = append(sections, warning)
+	}
+
 	// Guidance banner
 	sections = append(sections, p.renderGuidance())
 
@@ -191,6 +198,20 @@ func (p *QueueHealthPanel) renderPatrolFormulasWarning() string {
 	if p.health.PatrolFormulasFix != "" {
 		b.WriteString("\n")
 		b.WriteString(mutedStyle.Render("  → " + p.health.PatrolFormulasFix))
+	}
+	return b.String()
+}
+
+func (p *QueueHealthPanel) renderMigrationWarning() string {
+	if p.health.MigrationWarning == "" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString(queueMigrationWarningStyle.Render("⚠ " + p.health.MigrationWarning))
+	if p.health.MigrationFix != "" {
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("  → " + p.health.MigrationFix))
 	}
 	return b.String()
 }
@@ -337,6 +358,11 @@ var (
 				Foreground(lipgloss.Color("#FF0000"))
 
 	queuePatrolWarningStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFAA00")).
+				Bold(true).
+				MarginTop(1)
+
+	queueMigrationWarningStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("#FFAA00")).
 				Bold(true).
 				MarginTop(1)
