@@ -1445,3 +1445,78 @@ func TestRenderBeadsList_GoldenAllClosed(t *testing.T) {
 	result := renderBeadsList(state, nil, true, 50, 20)
 	CheckGolden(t, "panel_beads_all_closed", result, DefaultGoldenOptions())
 }
+
+// TestAgentDetailsWithTownLevelBeads verifies that agent details panel works
+// correctly with town-level bead IDs (hq- prefix) post-migration.
+func TestAgentDetailsWithTownLevelBeads(t *testing.T) {
+	now := time.Now()
+
+	// Agent with a town-level bead assigned (post-migration scenario)
+	agent := data.Agent{
+		Name:         "mayor",
+		Address:      "mayor/",
+		Role:         "mayor",
+		Running:      true,
+		Session:      "mayor-session-123",
+		HookedBeadID: "hq-mayor", // Town-level bead after migration
+		HookedStatus: "hooked",
+		HookedAt:     now,
+		FirstSubject: "Town management task",
+		UnreadMail:   2,
+	}
+
+	result := renderAgentDetails(agent, nil, 60)
+
+	// Should display the bead ID correctly
+	if !strings.Contains(result, "hq-mayor") {
+		t.Errorf("expected 'hq-mayor' bead ID in output, got: %s", result)
+	}
+
+	// Should display other fields correctly
+	if !strings.Contains(result, "mayor") {
+		t.Errorf("expected agent name 'mayor' in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Town management task") {
+		t.Errorf("expected hooked bead title in output, got: %s", result)
+	}
+	if !strings.Contains(result, "2 unread") {
+		t.Errorf("expected unread mail count in output, got: %s", result)
+	}
+}
+
+// TestBeadsPanelWithMixedScopes verifies that beads panel correctly handles
+// a mix of town-level (hq-*) and rig-level (pe-*, gt-*) bead IDs.
+func TestBeadsPanelWithMixedScopes(t *testing.T) {
+	state := NewSidebarState()
+	state.BeadsLoading = false
+
+	// Create snapshot with both town and rig issues
+	snap := &data.Snapshot{
+		Issues: []data.Issue{
+			// Pre-migration: rig-level agent beads
+			{ID: "gt-mayor", Title: "Mayor tasks", Status: "open"},
+			{ID: "gt-deacon", Title: "Deacon tasks", Status: "open"},
+			// Post-migration: town-level agent beads
+			{ID: "hq-mayor", Title: "Mayor tasks", Status: "open"},
+			{ID: "hq-deacon", Title: "Deacon tasks", Status: "open"},
+			// Rig-level beads (unchanged by migration)
+			{ID: "pe-001", Title: "Rig issue 1", Status: "open"},
+			{ID: "pe-002", Title: "Rig issue 2", Status: "open"},
+		},
+		LoadedAt: time.Now(),
+	}
+
+	// Rig scope should show both old gt-* and pe-* beads
+	state.BeadsScope = BeadsScopeRig
+	state.UpdateFromSnapshot(snap)
+	if len(state.Beads) != 4 { // gt-mayor, gt-deacon, pe-001, pe-002
+		t.Errorf("expected 4 rig beads (gt-* + pe-*), got %d", len(state.Beads))
+	}
+
+	// Town scope should show only hq-* beads
+	state.BeadsScope = BeadsScopeTown
+	state.UpdateFromSnapshot(snap)
+	if len(state.Beads) != 2 { // hq-mayor, hq-deacon
+		t.Errorf("expected 2 town beads (hq-*), got %d", len(state.Beads))
+	}
+}
