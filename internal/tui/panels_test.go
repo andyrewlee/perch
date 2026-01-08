@@ -1482,6 +1482,36 @@ func TestAgentDetailsWithTownLevelBeads(t *testing.T) {
 	if !strings.Contains(result, "2 unread") {
 		t.Errorf("expected unread mail count in output, got: %s", result)
 	}
+
+	// Should display Session Control section (tmux-invisible UX)
+	if !strings.Contains(result, "Session Control") {
+		t.Errorf("expected 'Session Control' section in output, got: %s", result)
+	}
+	if !strings.Contains(result, "tmux") {
+		t.Errorf("expected tmux mention in output, got: %s", result)
+	}
+	if !strings.Contains(result, "managed internally") {
+		t.Errorf("expected 'managed internally' in output, got: %s", result)
+	}
+
+	// Should display organized Actions section
+	if !strings.Contains(result, "Communication:") {
+		t.Errorf("expected 'Communication:' action category in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Session:") {
+		t.Errorf("expected 'Session:' action category in output, got: %s", result)
+	}
+	if !strings.Contains(result, "Work:") {
+		t.Errorf("expected 'Work:' action category in output, got: %s", result)
+	}
+
+	// Should show attach as advanced action
+	if !strings.Contains(result, "t=attach") {
+		t.Errorf("expected 't=attach' action in output, got: %s", result)
+	}
+	if !strings.Contains(result, "advanced") {
+		t.Errorf("expected 'advanced' label for attach action, got: %s", result)
+	}
 }
 
 // TestBeadsPanelWithMixedScopes verifies that beads panel correctly handles
