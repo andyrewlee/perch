@@ -13,9 +13,8 @@
 │ Hook                                         │
 │ (empty)                                      │
 │                                              │
-│ Activity Timeline                            │
-│   1h ■ Session killed                        │
+│ Session Control                              │
+│ Session not running                          │
 │                                              │
-│ Actions: n=nudge t=attach o=logs R=restart   │
-│ K=kill m=mail S=sling H=handoff              │
+│ Activity Timeline                            │
 ╰──────────────────────────────────────────────╯
