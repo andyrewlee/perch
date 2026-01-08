@@ -2539,6 +2539,18 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 	}
 	lines = append(lines, fmt.Sprintf("Session: %s", a.Session))
 
+	// Bead ID provenance section (post-migration support)
+	if a.TownBeadID != "" || a.DeaconBeadID != "" {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Bead ID"))
+		if a.TownBeadID != "" {
+			lines = append(lines, fmt.Sprintf("Town:    %s", a.TownBeadID))
+		}
+		if a.DeaconBeadID != "" {
+			lines = append(lines, fmt.Sprintf("Legacy:  %s", a.DeaconBeadID))
+		}
+	}
+
 	// Status with badge and explanation
 	badge := agentStatusBadge(a.Running, a.HasWork, a.UnreadMail)
 	statusText := agentStatusText(a.Running, a.HasWork, a.UnreadMail)
