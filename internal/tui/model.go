@@ -331,6 +331,10 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.RestartSession(ctx, target)
 		case ActionPresetNudge:
 			err = m.actionRunner.NudgeAgent(ctx, target, input)
+		case ActionCloseBead:
+			err = m.actionRunner.CloseBead(ctx, target)
+		case ActionReopenBead:
+			err = m.actionRunner.ReopenBead(ctx, target)
 		// Infrastructure agent controls
 		case ActionStartDeacon:
 			err = m.actionRunner.StartDeacon(ctx)
@@ -1193,6 +1197,44 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, statusExpireCmd(2 * time.Second)
 		}
 		return m, nil
+	case "z":
+		// Close selected bead (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
+				m.setStatus("No bead selected", true)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			bead := m.sidebar.Beads[m.sidebar.Selection]
+			if bead.issue.Status == "closed" {
+				m.setStatus("Bead '"+bead.issue.ID+"' is already closed", false)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			m.confirmDialog = &ConfirmDialog{
+				Title:   "Confirm Close Bead",
+				Message: "Close bead '" + bead.issue.ID + "'? (y/n)",
+				Action:  ActionCloseBead,
+				Target:  bead.issue.ID,
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case "Z":
+		// Reopen selected bead (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
+				m.setStatus("No bead selected", true)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			bead := m.sidebar.Beads[m.sidebar.Selection]
+			if bead.issue.Status != "closed" {
+				m.setStatus("Bead '"+bead.issue.ID+"' is not closed", false)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			m.setStatus("Reopening bead '"+bead.issue.ID+"'...", false)
+			return m, m.reopenBeadCmd(bead.issue.ID)
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -1601,6 +1643,28 @@ func (m Model) addCommentCmd(issueID, content string) tea.Cmd {
 
 		err := m.actionRunner.AddComment(ctx, issueID, content)
 		return actionCompleteMsg{action: ActionAddComment, target: issueID, err: err}
+	}
+}
+
+// closeBeadCmd creates a command that closes a bead.
+func (m Model) closeBeadCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.CloseBead(ctx, id)
+		return actionCompleteMsg{action: ActionCloseBead, target: id, err: err}
+	}
+}
+
+// reopenBeadCmd creates a command that reopens a closed bead.
+func (m Model) reopenBeadCmd(id string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.ReopenBead(ctx, id)
+		return actionCompleteMsg{action: ActionReopenBead, target: id, err: err}
 	}
 }
 
@@ -2453,8 +2517,15 @@ func actionName(action ActionType) string {
 		return "Create bead"
 	case ActionEditBead:
 		return "Update bead"
+<<<<<<< HEAD
 	case ActionAddComment:
 		return "Add comment"
+=======
+	case ActionCloseBead:
+		return "Close bead"
+	case ActionReopenBead:
+		return "Reopen bead"
+>>>>>>> 9932b57 (feat(tui): Add close and reopen actions for beads in Beads Explorer)
 	// Infrastructure agent controls
 	case ActionStartDeacon:
 		return "Start deacon"

@@ -46,6 +46,8 @@ const (
 	ActionCreateBead     // Create a new bead (issue)
 	ActionEditBead       // Edit an existing bead
 	ActionAddComment     // Add a comment to a bead (issue)
+	ActionCloseBead      // Close a bead (mark as resolved)
+	ActionReopenBead     // Reopen a closed bead
 
 	// Infrastructure agent controls (Deacon/Witness/Refinery)
 	ActionStartDeacon     // Start the Deacon (town-level watchdog)
@@ -290,6 +292,18 @@ func (r *ActionRunner) UpdateBead(ctx context.Context, id, title, description, i
 	}
 	args = append(args, "--priority", fmt.Sprintf("%d", priority))
 	return r.runCommand(ctx, args...)
+}
+
+// CloseBead closes a bead (marks it as resolved).
+// Runs: bd close <id>
+func (r *ActionRunner) CloseBead(ctx context.Context, id string) error {
+	return r.runCommand(ctx, "bd", "close", id)
+}
+
+// ReopenBead reopens a closed bead.
+// Runs: bd update <id> --status open
+func (r *ActionRunner) ReopenBead(ctx context.Context, id string) error {
+	return r.runCommand(ctx, "bd", "update", id, "--status", "open")
 }
 
 // SlingWork assigns work to an agent.
