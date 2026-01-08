@@ -2720,7 +2720,7 @@ func renderPluginDetails(p data.Plugin, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes []data.Route, width int) string {
+func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes *data.Routes, width int) string {
 	var lines []string
 	lines = append(lines, headerStyle.Render("Identity & Provenance"))
 	lines = append(lines, mutedStyle.Render("Who you are and what you've touched"))
@@ -2759,12 +2759,12 @@ func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes []
 	}
 
 	// Routes (beads prefix routing)
-	if len(routes) > 0 {
+	if routes != nil && len(routes.Entries) > 0 {
 		lines = append(lines, "")
 		lines = append(lines, headerStyle.Render("Beads Routes"))
 		lines = append(lines, mutedStyle.Render("Prefix routing (routes.jsonl)"))
-		for _, r := range routes {
-			lines = append(lines, fmt.Sprintf("%s → %s", mutedStyle.Render(r.Prefix), r.Path))
+		for _, r := range routes.Entries {
+			lines = append(lines, fmt.Sprintf("%s → %s", mutedStyle.Render(r.Prefix), r.Location))
 		}
 	}
 
