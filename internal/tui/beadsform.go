@@ -43,6 +43,13 @@ type BeadsForm struct {
 
 	submitted bool
 	cancelled bool
+
+	// Pending data for town-level confirmation (stored while showing dialog)
+	pendingID          string
+	pendingTitle       string
+	pendingDescription string
+	pendingType        string
+	pendingPriority    int
 }
 
 // NewBeadsFormCreate creates a new form for creating a bead

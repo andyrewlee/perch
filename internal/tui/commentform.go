@@ -14,6 +14,10 @@ type CommentForm struct {
 	input     textarea.Model
 	submitted bool
 	cancelled bool
+
+	// Pending data for town-level confirmation (stored while showing dialog)
+	pendingIssueID string
+	pendingContent string
 }
 
 // NewCommentForm creates a new form for adding a comment

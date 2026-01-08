@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/andyrewlee/perch/data"
@@ -581,6 +582,11 @@ type RefileDialog struct {
 	Rigs      []data.Rig     // Available rigs
 	Targets   []RefileTarget // Computed targets from rigs
 	Selection int            // Currently selected target
+}
+
+// IsTownLevelBead returns true if the bead ID is a town-level bead (hq- prefix).
+func IsTownLevelBead(beadID string) bool {
+	return strings.HasPrefix(beadID, "hq-")
 }
 
 // IsDestructive returns true if the action type requires confirmation.
