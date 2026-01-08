@@ -2611,6 +2611,16 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 		lines = append(lines, mutedStyle.Render("(empty)"))
 	}
 
+	// Session control section (tmux-invisible UX)
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Session Control"))
+	if a.Running {
+		lines = append(lines, mutedStyle.Render("Sessions run in tmux (managed internally)"))
+		lines = append(lines, mutedStyle.Render("Use UI actions below—no tmux knowledge needed"))
+	} else {
+		lines = append(lines, mutedStyle.Render("Session not running"))
+	}
+
 	if a.UnreadMail > 0 {
 		lines = append(lines, "")
 		lines = append(lines, fmt.Sprintf("Mail:    %d unread", a.UnreadMail))
@@ -2621,9 +2631,22 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 	lines = append(lines, headerStyle.Render("Activity Timeline"))
 	lines = append(lines, renderAuditTimeline(audit, width))
 
-	// Action hints
+	// Action hints - organized by category
 	lines = append(lines, "")
-	lines = append(lines, mutedStyle.Render("Actions: n=nudge t=attach o=logs R=restart K=kill m=mail S=sling H=handoff"))
+	lines = append(lines, headerStyle.Render("Actions"))
+	lines = append(lines, mutedStyle.Render("Communication:"))
+	lines = append(lines, mutedStyle.Render("  n=nudge  Send quick message"))
+	lines = append(lines, mutedStyle.Render("  m=mail   Compose message"))
+	lines = append(lines, mutedStyle.Render("Session:"))
+	lines = append(lines, mutedStyle.Render("  R=restart Restart agent session"))
+	if a.Running {
+		lines = append(lines, mutedStyle.Render("  t=attach Direct tmux access (advanced)"))
+	}
+	lines = append(lines, mutedStyle.Render("  K=kill   Stop agent"))
+	lines = append(lines, mutedStyle.Render("Work:"))
+	lines = append(lines, mutedStyle.Render("  S=sling  Assign work"))
+	lines = append(lines, mutedStyle.Render("  H=handoff Transfer work"))
+	lines = append(lines, mutedStyle.Render("  o=logs   View session logs"))
 
 	return strings.Join(lines, "\n")
 }
