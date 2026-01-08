@@ -2239,7 +2239,7 @@ func renderBeadsRoutesView(snap *data.Snapshot, state *SidebarState, width int) 
 			prefixBadge := headerStyle.Render(prefix)
 
 			// Truncate location if too long
-			location := route.Location
+			location := route.GetLocation()
 			if len(location) > width-20 {
 				location = "..." + location[len(location)-(width-23):]
 			}
@@ -2881,8 +2881,15 @@ func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes *d
 		lines = append(lines, "")
 		lines = append(lines, headerStyle.Render("Beads Routes"))
 		lines = append(lines, mutedStyle.Render("Prefix routing (routes.jsonl)"))
-		for _, r := range routes.Entries {
-			lines = append(lines, fmt.Sprintf("%s → %s", mutedStyle.Render(r.Prefix), r.Location))
+		// Sort prefixes for consistent display
+		sortedPrefixes := make([]string, 0, len(routes.Entries))
+		for p := range routes.Entries {
+			sortedPrefixes = append(sortedPrefixes, p)
+		}
+		sort.Strings(sortedPrefixes)
+		for _, p := range sortedPrefixes {
+			r := routes.Entries[p]
+			lines = append(lines, fmt.Sprintf("%s → %s", mutedStyle.Render(r.Prefix), r.GetLocation()))
 		}
 	}
 

@@ -582,7 +582,16 @@ type BeadInfo struct {
 type BeadRoute struct {
 	Prefix  string `json:"prefix"`           // e.g., "hq-", "pe-", "gt-"
 	Location string `json:"location"`         // Absolute path to beads directory
+	Path     string `json:"path,omitempty"`   // Legacy field name for location (for compatibility)
 	Rig     string `json:"rig,omitempty"`     // Rig name if applicable (empty for town)
+}
+
+// GetLocation returns the location, using Path as fallback for backward compatibility.
+func (br *BeadRoute) GetLocation() string {
+	if br.Location != "" {
+		return br.Location
+	}
+	return br.Path
 }
 
 // Routes maps bead ID prefixes to their beads locations.
