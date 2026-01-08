@@ -101,6 +101,10 @@ type Model struct {
 	// Queue health panel (shown when Merge Queue selected in sidebar)
 	queueHealthPanel *QueueHealthPanel
 	queueHealthData  map[string]QueueHealth // Per-rig queue health
+
+	// Agent dashboard (shown for agent health overview)
+	agentDashboard *AgentDashboard
+	showAgentDashboard bool // True when agent dashboard view is active
 }
 
 // GetDefaultTownRoot returns the default Gas Town root directory.

@@ -115,7 +115,10 @@ func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 	// 3. Migration status (legacy agent bead IDs)
 	state.Subsystems = append(state.Subsystems, buildMigrationHealth(snap))
 
-	// 4. Per-rig subsystems
+	// 4. All Agents (agent dashboard entry point)
+	state.Subsystems = append(state.Subsystems, buildAllAgentsHealth(snap))
+
+	// 5. Per-rig subsystems
 	if snap.Town != nil {
 		for _, rig := range snap.Town.Rigs {
 			// Get heartbeat info for this rig (if available)
@@ -349,6 +352,86 @@ func buildMigrationHealth(snap *data.Snapshot) SubsystemHealth {
 
 	h.Message = "No legacy agent IDs"
 	h.Details = "All agent beads use correct rig-specific prefixes"
+	return h
+}
+
+// buildAllAgentsHealth creates a subsystem entry for the agent dashboard.
+// This provides a single entry point to view all agents' health status.
+func buildAllAgentsHealth(snap *data.Snapshot) SubsystemHealth {
+	h := SubsystemHealth{
+		Name:        "All Agents",
+		Subsystem:   "all_agents",
+		Status:      SubsystemHealthy,
+		LastChecked: time.Now(),
+	}
+
+	if snap.Town == nil {
+		h.Status = SubsystemUnknown
+		h.Message = "No data"
+		h.Details = "Town status not available"
+		h.Action = "Refresh to check status"
+		return h
+	}
+
+	// Count agent states
+	totalAgents := 0
+	runningAgents := 0
+	workingAgents := 0
+	staleAgents := 0
+	agentsWithMail := 0
+
+	for _, rig := range snap.Town.Rigs {
+		for _, agent := range rig.Agents {
+			totalAgents++
+			if agent.Running {
+				runningAgents++
+				if agent.HasWork {
+					workingAgents++
+					// Check for stale work
+					if !agent.HookedAt.IsZero() && time.Since(agent.HookedAt) > 2*time.Hour {
+						staleAgents++
+					}
+				}
+			}
+			if agent.UnreadMail > 0 {
+				agentsWithMail++
+			}
+		}
+	}
+
+	if totalAgents == 0 {
+		h.Status = SubsystemUnknown
+		h.Message = "No agents"
+		h.Details = "No agents found in any rig"
+		return h
+	}
+
+	// Determine overall status
+	if runningAgents == 0 {
+		h.Status = SubsystemError
+		h.Message = "All agents stopped"
+		h.Details = "No agents are currently running"
+		h.Action = "Press 'b' to boot services"
+	} else if staleAgents > 0 {
+		h.Status = SubsystemWarning
+		h.Message = fmt.Sprintf("%d/%d stale", staleAgents, totalAgents)
+		h.Details = fmt.Sprintf("%d agents have work hooked for >2 hours", staleAgents)
+		h.Action = "Nudge stale agents to resume work"
+	} else if agentsWithMail > 0 {
+		h.Status = SubsystemWarning
+		h.Message = fmt.Sprintf("%d with mail", agentsWithMail)
+		h.Details = fmt.Sprintf("%d agents have unread mail", agentsWithMail)
+	} else if workingAgents > 0 {
+		h.Status = SubsystemHealthy
+		h.Message = fmt.Sprintf("%d/%d working", workingAgents, totalAgents)
+		h.Details = fmt.Sprintf("%d agents active, %d idle", workingAgents, runningAgents-workingAgents)
+	} else {
+		h.Status = SubsystemWarning
+		h.Message = fmt.Sprintf("%d idle", runningAgents)
+		h.Details = "All agents are running but none have work assigned"
+		h.Action = "Assign work via convoys or sling commands"
+	}
+
 	return h
 }
 

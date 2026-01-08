@@ -2081,6 +2081,13 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		// No bead selected - show routes overview
 		return renderBeadsRoutesView(snap, state, width)
 	case SectionOperator:
+		// Check if "All Agents" subsystem is selected - show agent dashboard
+		if state.OperatorState != nil && state.Selection >= 0 && state.Selection < len(state.OperatorState.Subsystems) {
+			sub := state.OperatorState.Subsystems[state.Selection]
+			if sub.Subsystem == "all_agents" {
+				return renderAgentDashboard(snap, width)
+			}
+		}
 		return RenderOperatorDetails(state.OperatorState, state.Selection, width)
 	}
 
@@ -2525,6 +2532,13 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderAgentDashboard renders the agent status dashboard.
+// This shows all agents across all rigs with their health status.
+func renderAgentDashboard(snap *data.Snapshot, width int) string {
+	dash := NewAgentDashboard(snap)
+	return dash.Render(width, 50) // Use reasonable height, details panel will handle overflow
 }
 
 func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) string {
