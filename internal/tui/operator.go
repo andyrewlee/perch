@@ -110,7 +110,10 @@ func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 	// 2. Beads sync status
 	state.Subsystems = append(state.Subsystems, buildBeadsSyncHealth(snap))
 
-	// 3. Per-rig subsystems
+	// 3. Migration status (legacy agent bead IDs)
+	state.Subsystems = append(state.Subsystems, buildMigrationHealth(snap))
+
+	// 4. Per-rig subsystems
 	if snap.Town != nil {
 		for _, rig := range snap.Town.Rigs {
 			// Get heartbeat info for this rig (if available)
@@ -249,6 +252,96 @@ func buildBeadsSyncHealth(snap *data.Snapshot) SubsystemHealth {
 	// No issues loaded could be normal (empty) or an issue
 	h.Message = "No issues"
 	h.Details = "No beads issues loaded - this may be normal for a new project"
+	return h
+}
+
+// buildMigrationHealth checks for legacy agent bead IDs that need migration.
+// Legacy agent bead IDs use the town prefix (e.g., "gt-perch-polecat-*")
+// instead of the rig-specific prefix (e.g., "pe-perch-polecat-*").
+func buildMigrationHealth(snap *data.Snapshot) SubsystemHealth {
+	h := SubsystemHealth{
+		Name:        "Agent Bead Migration",
+		Subsystem:   "agent_migration",
+		Status:      SubsystemHealthy,
+		LastChecked: time.Now(),
+	}
+
+	// Get town prefix from routes (e.g., "gt-")
+	var townPrefix string
+	if snap.Routes != nil {
+		for prefix, route := range snap.Routes.Entries {
+			if route.Rig == "" { // Empty rig means town-level
+				townPrefix = prefix
+				break
+			}
+		}
+	}
+
+	// If no town prefix found, default to "gt-" (common default)
+	if townPrefix == "" {
+		townPrefix = "gt-"
+	}
+
+	// Count legacy agent bead IDs across all issues
+	legacyCount := 0
+	var legacyIDs []string
+
+	for _, issue := range snap.Issues {
+		// Check if this is an agent bead (type: agent or ID matches agent pattern)
+		isAgentBead := issue.IssueType == "agent" ||
+			strings.HasPrefix(issue.ID, townPrefix) &&
+				strings.Contains(issue.ID, "-polecat-") ||
+			strings.Contains(issue.ID, "-witness-") ||
+			strings.Contains(issue.ID, "-refinery-")
+
+		if isAgentBead && strings.HasPrefix(issue.ID, townPrefix) {
+			// This is a legacy agent bead ID (uses town prefix instead of rig prefix)
+			// Exclude town-level agent beads (hq- prefix) which are correct
+			if issue.ID != "gt-mayor" && issue.ID != "gt-deacon" &&
+			   !strings.HasPrefix(issue.ID, "hq-") {
+				legacyCount++
+				if len(legacyIDs) < 5 { // Keep first 5 examples
+					legacyIDs = append(legacyIDs, issue.ID)
+				}
+			}
+		}
+
+		// Also check agent_bead field in merge request descriptions
+		if issue.IssueType == "merge-request" && issue.Description != "" {
+			lines := strings.Split(issue.Description, "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "agent_bead:") {
+					agentBead := strings.TrimPrefix(line, "agent_bead:")
+					agentBead = strings.TrimSpace(agentBead)
+					if strings.HasPrefix(agentBead, townPrefix) &&
+					   !strings.HasPrefix(agentBead, "hq-") &&
+					   agentBead != "gt-mayor" && agentBead != "gt-deacon" {
+						// Found a legacy reference in a merge request
+						if legacyCount == 0 {
+							legacyIDs = append(legacyIDs, agentBead+" (in MR)")
+						}
+						legacyCount++
+					}
+				}
+			}
+		}
+	}
+
+	if legacyCount > 0 {
+		h.Status = SubsystemWarning
+		h.Message = fmt.Sprintf("%d legacy agent bead IDs", legacyCount)
+		if len(legacyIDs) > 0 {
+			h.Details = fmt.Sprintf("Found agent beads using town prefix (%s): %s",
+				townPrefix, strings.Join(legacyIDs, ", "))
+		} else {
+			h.Details = fmt.Sprintf("Agent beads using town prefix (%s) should use rig-specific prefix", townPrefix)
+		}
+		h.Action = "Run 'gt migrate-agents' to update to new naming scheme"
+		return h
+	}
+
+	h.Message = "No legacy agent IDs"
+	h.Details = "All agent beads use correct rig-specific prefixes"
 	return h
 }
 
