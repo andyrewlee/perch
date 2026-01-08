@@ -63,6 +63,7 @@ type Model struct {
 	presetNudgeMenu *PresetNudgeMenu
 	depDialog       *DependencyDialog // Dependency management dialog
 	beadsFilterForm *BeadsFilterDialog // Beads filter dialog (ace)
+	refileDialog    *RefileDialog     // Refile target selection menu
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -358,6 +359,17 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 	}
 }
 
+// refileCmd creates a command that executes the refile action.
+func (m Model) refileCmd(issueID, target string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.RefileIssue(ctx, issueID, target)
+		return actionCompleteMsg{action: ActionRefileIssue, target: issueID, err: err}
+	}
+}
+
 // statusExpireCmd creates a command that expires the status message after a delay.
 func statusExpireCmd(duration time.Duration) tea.Cmd {
 	return tea.Tick(duration, func(time.Time) tea.Msg {
@@ -558,6 +570,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handlePresetNudgeMenuKey(msg)
 	}
 
+	// Handle refile dialog
+	if m.refileDialog != nil {
+		return m.handleRefileDialogKey(msg)
+	}
+
 	// Handle attach dialog
 	if m.attachDialog != nil {
 		return m.handleAttachKey(msg)
@@ -660,6 +677,20 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus("Booting rig "+m.selectedRig+"...", false)
 		return m, m.actionCmd(ActionBootRig, m.selectedRig)
+
+	case "m":
+		// Move/refile issue to different scope (only in Beads section)
+		if m.sidebar.Section != SectionBeads {
+			m.setStatus("Switch to Beads section (press 9) to refile issues", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
+			m.setStatus("No issue selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		issue := m.sidebar.Beads[m.sidebar.Selection].issue
+		m.refileDialog = NewRefileDialog(issue.ID, m.snapshot)
+		return m, nil
 
 	case "s":
 		// Context-dependent: Stop infrastructure (Operator section), toggle beads scope (Beads section), or shutdown rig (Rigs section)
@@ -1402,6 +1433,40 @@ func (m Model) handlePresetNudgeMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "q":
 		m.presetNudgeMenu = nil
 		m.setStatus("Nudge cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+	return m, nil
+}
+
+// handleRefileDialogKey handles key presses when the refile dialog is shown.
+func (m Model) handleRefileDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "j", "down":
+		if m.refileDialog.Selection < len(m.refileDialog.Targets)-1 {
+			m.refileDialog.Selection++
+		}
+		return m, nil
+
+	case "k", "up":
+		if m.refileDialog.Selection > 0 {
+			m.refileDialog.Selection--
+		}
+		return m, nil
+
+	case "enter":
+		if m.refileDialog.Selection < 0 || m.refileDialog.Selection >= len(m.refileDialog.Targets) {
+			m.refileDialog = nil
+			return m, nil
+		}
+		selected := m.refileDialog.Targets[m.refileDialog.Selection]
+		issueID := m.refileDialog.IssueID
+		m.refileDialog = nil
+		m.setStatus("Refile "+issueID+" to "+selected.Target, false)
+		return m, m.refileCmd(issueID, selected.Target)
+
+	case "esc", "q":
+		m.refileDialog = nil
+		m.setStatus("Refile cancelled", false)
 		return m, statusExpireCmd(2 * time.Second)
 	}
 	return m, nil
@@ -2513,6 +2578,8 @@ func actionName(action ActionType) string {
 		return "Restart session"
 	case ActionPresetNudge:
 		return "Nudge"
+	case ActionRefileIssue:
+		return "Refile"
 	case ActionCreateBead:
 		return "Create bead"
 	case ActionEditBead:
@@ -2678,6 +2745,10 @@ func (m Model) View() string {
 
 	if m.beadsFilterForm != nil {
 		return m.renderBeadsFilterDialog()
+	}
+
+	if m.refileDialog != nil {
+		return m.renderRefileDialog()
 	}
 
 	return m.renderLayout()
@@ -3916,4 +3987,94 @@ func agentStatusFromState(running, hasWork bool, unreadMail int) AgentStatus {
 		return StatusWorking
 	}
 	return StatusIdle
+}
+
+// NewRefileDialog creates a new refile dialog for an issue.
+func NewRefileDialog(issueID string, snap *data.Snapshot) *RefileDialog {
+	d := &RefileDialog{
+		IssueID:   issueID,
+		Selection: 0,
+	}
+
+	// Build target list from snapshot
+	// Always include "Town" first
+	d.Targets = append(d.Targets, RefileTarget{
+		Label:  "Town (hq-*)",
+		Target: "town",
+	})
+
+	// Add all rigs as targets
+	if snap != nil && snap.Town != nil {
+		for _, rig := range snap.Town.Rigs {
+			d.Rigs = append(d.Rigs, rig)
+			// Try to get prefix from settings or use rig name as hint
+			prefix := rig.Name
+			label := rig.Name
+			d.Targets = append(d.Targets, RefileTarget{
+				Label:  label,
+				Target: prefix,
+			})
+		}
+	}
+
+	return d
+}
+
+// renderRefileDialog renders the refile target selection menu overlay
+func (m Model) renderRefileDialog() string {
+	// Calculate menu dimensions (centered, compact)
+	menuWidth := 50
+	if menuWidth > m.width-4 {
+		menuWidth = m.width - 4
+	}
+
+	// Build menu content
+	var b strings.Builder
+
+	// Title
+	title := helpTitleStyle.Render("Refile " + m.refileDialog.IssueID)
+	b.WriteString(title)
+	b.WriteString("\n\n")
+
+	// Options
+	for i, target := range m.refileDialog.Targets {
+		var line string
+		if i == m.refileDialog.Selection {
+			line = selectedItemStyle.Render("> " + target.Label)
+		} else {
+			line = mutedStyle.Render("  " + target.Label)
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("j/k: select • enter: refile • esc: cancel"))
+
+	content := b.String()
+
+	// Wrap in box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(menuWidth)
+
+	box := boxStyle.Render(content)
+
+	// Center on screen
+	boxHeight := lipgloss.Height(box)
+	boxWidth := lipgloss.Width(box)
+
+	paddingTop := (m.height - boxHeight) / 2
+	paddingLeft := (m.width - boxWidth) / 2
+
+	if paddingTop < 0 {
+		paddingTop = 0
+	}
+	if paddingLeft < 0 {
+		paddingLeft = 0
+	}
+
+	return strings.Repeat("\n", paddingTop) + strings.Repeat(" ", paddingLeft) + box
 }
