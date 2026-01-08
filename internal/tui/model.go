@@ -866,6 +866,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "t":
+		// Cycle beads type filter (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.CycleBeadsTypeFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			typeName := m.sidebar.BeadsTypeFilter
+			if typeName == "" {
+				typeName = "all"
+			}
+			m.setStatus("Type: "+typeName, false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
 		// Attach to agent's terminal session
 		if m.selectedAgent == "" {
 			m.setStatus("No agent selected. Use j/k to select an agent.", true)
@@ -1043,6 +1054,18 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
 			m.cycleLifecycleTypeFilter()
 			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			return m, nil
+		}
+		// Cycle beads status filter (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.CycleBeadsStatusFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			filterName := m.sidebar.BeadsStatusFilter
+			if filterName == "" {
+				filterName = "all"
+			}
+			m.setStatus("Status: "+filterName, false)
+			return m, statusExpireCmd(2 * time.Second)
 		}
 		// Toggle plugin enabled/disabled (only in Plugins section)
 		if m.sidebar != nil && m.sidebar.Section == SectionPlugins && m.selectedPlugin != "" {
@@ -1056,6 +1079,19 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionLifecycle {
 			m.setLifecycleAgentFilter()
 			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			return m, nil
+		}
+		// Set assignee filter from current selection (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.SetBeadsAssigneeFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			assignee := m.sidebar.BeadsAssigneeFilter
+			if assignee == "" {
+				m.setStatus("Assignee filter cleared", false)
+			} else {
+				m.setStatus("Assignee: "+assignee, false)
+			}
+			return m, statusExpireCmd(2 * time.Second)
 		}
 		return m, nil
 
@@ -1066,6 +1102,13 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.sidebar.LifecycleAgentFilter = ""
 			m.sidebar.UpdateFromSnapshot(m.snapshot)
 			return m, nil
+		}
+		// Clear beads filters (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.ClearBeadsFilters()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			m.setStatus("Filters cleared", false)
+			return m, statusExpireCmd(2 * time.Second)
 		}
 		// Remove worktree (only when in Worktrees section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionWorktrees {
@@ -1085,6 +1128,21 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				Target:  wt.wt.Path,
 			}
 			return m, nil
+		}
+		return m, nil
+
+	case "p":
+		// Cycle beads priority filter (only in Beads section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			m.sidebar.CycleBeadsPriorityFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			priority := m.sidebar.BeadsPriorityFilter
+			priorityName := "all"
+			if priority >= 0 {
+				priorityName = fmt.Sprintf("P%d", priority)
+			}
+			m.setStatus("Priority: "+priorityName, false)
+			return m, statusExpireCmd(2 * time.Second)
 		}
 		return m, nil
 	}
@@ -2783,19 +2841,19 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("0-9") + "        Jump to section (0=Identity...9=Alerts)",
 		helpKeyStyle.Render("-") + "          Operator console (system health)",
 		helpKeyStyle.Render("H") + "          Toggle convoy active/history view",
-		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
-		helpKeyStyle.Render("e") + "          Edit rig settings (when in Rigs)",
+		helpKeyStyle.Render("x") + "          Remove worktree / clear filters",
+		helpKeyStyle.Render("e") + "          Edit rig settings / Cycle status filter (beads)",
+		helpKeyStyle.Render("g") + "          Filter by assignee (beads/lifecycle)",
 		helpKeyStyle.Render("a") + "          Add new rig",
 		helpKeyStyle.Render("A") + "          Attach to a different town",
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
-		helpKeyStyle.Render("e") + "          Cycle type filter (lifecycle)",
-		helpKeyStyle.Render("g") + "          Filter by agent (lifecycle)",
-		helpKeyStyle.Render("x") + "          Remove worktree / clear lifecycle filters",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot rig / Create-edit bead (beads)",
 		helpKeyStyle.Render("s") + "          Shutdown rig / Toggle scope (beads)",
+		helpKeyStyle.Render("t") + "          Cycle type filter (beads)",
+		helpKeyStyle.Render("p") + "          Cycle priority filter (beads)",
 		helpKeyStyle.Render("d") + "          Delete selected rig",
 		helpKeyStyle.Render("o") + "          Open logs for agent",
 		"",
