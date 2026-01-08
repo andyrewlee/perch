@@ -192,6 +192,46 @@ type Issue struct {
 	Ephemeral       bool      `json:"ephemeral"`
 }
 
+// IssueDependency represents a dependency relationship between issues.
+type IssueDependency struct {
+	ID          string    `json:"id"`
+	Title       string    `json:"title"`
+	Status      string    `json:"status"`
+	IssueType   string    `json:"issue_type"`
+	Priority    int       `json:"priority"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	DepType     string    `json:"dep_type"` // "blocks" or "blocked_by"
+}
+
+// IssueDependencies contains all dependencies for an issue.
+type IssueDependencies struct {
+	IssueID      string
+	BlockedBy    []IssueDependency // Issues that block this issue
+	Blocking     []IssueDependency // Issues that this issue blocks
+	Loading      bool
+	LoadError    error
+	LastLoadedAt time.Time
+}
+
+// Comment represents a comment on a beads issue.
+// Loaded via: bd comments <issue-id> --json
+type Comment struct {
+	ID        string    `json:"id"`
+	IssueID   string    `json:"issue_id"`
+	Author    string    `json:"author"`
+	Content   string    `json:"content"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// IssueComments contains all comments for an issue.
+type IssueComments struct {
+	IssueID      string
+	Comments     []Comment
+	Loading      bool
+	LoadError    error
+	LastLoadedAt time.Time
+}
+
 // MailMessage represents a mail message in the inbox.
 // Loaded via: gt mail inbox --json
 type MailMessage struct {

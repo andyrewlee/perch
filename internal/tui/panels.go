@@ -1630,7 +1630,7 @@ type AuditTimelineState struct {
 }
 
 // RenderDetails renders the details panel for the selected item
-func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width, height int, focused bool) string {
+func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width, height int, focused bool, dependencies *data.IssueDependencies, comments *data.IssueComments) string {
 	innerWidth := width - 4
 	innerHeight := height - 2
 
@@ -1642,7 +1642,7 @@ func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelin
 	}
 
 	title := titleStyle.Render("Details")
-	content := renderSelectedDetails(state, snap, audit, innerWidth)
+	content := renderSelectedDetails(state, snap, audit, innerWidth, dependencies, comments)
 
 	// Pad content to fill space
 	inner := lipgloss.JoinVertical(lipgloss.Left, title, content)
@@ -1666,7 +1666,7 @@ func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelin
 	return style.Render(inner)
 }
 
-func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width int) string {
+func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width int, dependencies *data.IssueDependencies, comments *data.IssueComments) string {
 	if state == nil || snap == nil {
 		return mutedStyle.Render("No data loaded")
 	}
@@ -1722,7 +1722,7 @@ func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *Audi
 		}
 	case SectionBeads:
 		if state.Selection >= 0 && state.Selection < len(state.Beads) {
-			return renderBeadDetails(state.Beads[state.Selection].issue, state, width)
+			return renderBeadDetails(state.Beads[state.Selection].issue, state, width, dependencies, comments)
 		}
 	}
 
@@ -1782,7 +1782,7 @@ func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string
 }
 
 // renderBeadDetails renders the detailed view of a bead (issue).
-func renderBeadDetails(issue data.Issue, state *SidebarState, width int) string {
+func renderBeadDetails(issue data.Issue, state *SidebarState, width int, dependencies *data.IssueDependencies, comments *data.IssueComments) string {
 	var lines []string
 
 	// Header with scope indicator
@@ -1817,13 +1817,56 @@ func renderBeadDetails(issue data.Issue, state *SidebarState, width int) string 
 	lines = append(lines, "")
 
 	// Dependencies
-	if issue.DependencyCount > 0 || issue.DependentCount > 0 {
+	hasDeps := issue.DependencyCount > 0 || issue.DependentCount > 0
+	showDeps := dependencies != nil && (len(dependencies.BlockedBy) > 0 || len(dependencies.Blocking) > 0)
+
+	if hasDeps || showDeps {
 		lines = append(lines, headerStyle.Render("Dependencies"))
-		if issue.DependencyCount > 0 {
-			lines = append(lines, fmt.Sprintf("  Blocked by: %d issues", issue.DependencyCount))
+
+		// Show actual dependency IDs if loaded
+		if showDeps {
+			if len(dependencies.BlockedBy) > 0 {
+				lines = append(lines, fmt.Sprintf("  Blocked by (%d):", len(dependencies.BlockedBy)))
+				for _, dep := range dependencies.BlockedBy {
+					depBadge := beadStatusBadge(dep.Status)
+					lines = append(lines, fmt.Sprintf("    %s %s %s", dep.ID, depBadge, truncateStr(dep.Title, width-20)))
+				}
+			}
+			if len(dependencies.Blocking) > 0 {
+				lines = append(lines, fmt.Sprintf("  Blocking (%d):", len(dependencies.Blocking)))
+				for _, dep := range dependencies.Blocking {
+					depBadge := beadStatusBadge(dep.Status)
+					lines = append(lines, fmt.Sprintf("    %s %s %s", dep.ID, depBadge, truncateStr(dep.Title, width-20)))
+				}
+			}
+		} else {
+			// Show counts only
+			if issue.DependencyCount > 0 {
+				lines = append(lines, fmt.Sprintf("  Blocked by: %d issues", issue.DependencyCount))
+			}
+			if issue.DependentCount > 0 {
+				lines = append(lines, fmt.Sprintf("  Blocking:   %d issues", issue.DependentCount))
+			}
 		}
-		if issue.DependentCount > 0 {
-			lines = append(lines, fmt.Sprintf("  Blocking:   %d issues", issue.DependentCount))
+		lines = append(lines, "")
+	}
+
+	// Comments
+	if comments != nil && len(comments.Comments) > 0 {
+		lines = append(lines, headerStyle.Render(fmt.Sprintf("Comments (%d)", len(comments.Comments))))
+		for _, comment := range comments.Comments {
+			lines = append(lines, "")
+			// Format: "author (time)" on first line, content below
+			lines = append(lines, fmt.Sprintf("  %s (%s)", comment.Author, comment.CreatedAt.Format("2006-01-02 15:04")))
+			// Wrap comment content
+			content := comment.Content
+			for len(content) > width-6 {
+				lines = append(lines, "    "+content[:width-6])
+				content = content[width-6:]
+			}
+			if content != "" {
+				lines = append(lines, "    "+content)
+			}
 		}
 		lines = append(lines, "")
 	}

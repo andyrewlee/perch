@@ -325,6 +325,25 @@ func (r *ActionRunner) TogglePlugin(ctx context.Context, pluginPath string) erro
 	return os.Remove(disabledPath)
 }
 
+// AddDependency adds a dependency relationship between issues.
+// blockerID blocks blockedID (blockedID depends on blockerID).
+// Runs: bd dep add <blocked-id> <blocker-id>
+func (r *ActionRunner) AddDependency(ctx context.Context, blockedID, blockerID string) error {
+	return r.runCommand(ctx, "bd", "dep", "add", blockedID, blockerID)
+}
+
+// RemoveDependency removes a dependency relationship between issues.
+// Runs: bd dep remove <blocked-id> <blocker-id>
+func (r *ActionRunner) RemoveDependency(ctx context.Context, blockedID, blockerID string) error {
+	return r.runCommand(ctx, "bd", "dep", "remove", blockedID, blockerID)
+}
+
+// AddComment adds a comment to an issue.
+// Runs: bd comments add <issue-id> <comment>
+func (r *ActionRunner) AddComment(ctx context.Context, issueID, comment string) error {
+	return r.runCommand(ctx, "bd", "comments", "add", issueID, comment)
+}
+
 // OpenSession attaches to an agent's underlying tmux session.
 // This is an advanced action for power users who need direct session access.
 // Runs: gt session attach <agent-address>
