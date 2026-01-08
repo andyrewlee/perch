@@ -44,6 +44,7 @@ const (
 	ActionRestartSession // Restart agent's session
 	ActionPresetNudge    // Nudge with preset message
 	ActionCreateBead     // Create a new bead (issue)
+	ActionRefileIssue    // Move issue between town/rig scopes
 	ActionEditBead       // Edit an existing bead
 	ActionAddComment     // Add a comment to a bead (issue)
 	ActionCloseBead      // Close a bead (mark as resolved)
@@ -387,6 +388,16 @@ func (r *ActionRunner) OpenSession(ctx context.Context, agentAddress string) err
 	return r.runCommand(ctx, "gt", "session", "attach", agentAddress)
 }
 
+// RefileIssue moves an issue between town and rig scopes.
+// Runs: bd refile <issue-id> --to <target>
+// The target can be:
+//   - "town": Move to town-level beads (~/gt/.beads/)
+//   - A rig name: e.g., "perch"
+//   - A prefix: e.g., "pe-", "gt-"
+func (r *ActionRunner) RefileIssue(ctx context.Context, issueID, target string) error {
+	return r.runCommand(ctx, "bd", "refile", issueID, "--to", target)
+}
+
 // StartDeacon starts the Deacon (town-level watchdog).
 // Runs: gt deacon start
 func (r *ActionRunner) StartDeacon(ctx context.Context) error {
@@ -556,6 +567,20 @@ var PresetNudges = []PresetNudge{
 type PresetNudgeMenu struct {
 	Target    string
 	Selection int
+}
+
+// RefileTarget represents a destination scope for refile.
+type RefileTarget struct {
+	Label  string // Display label (e.g., "Town (hq-*)", "perch (pe-*)")
+	Target string // Actual target value for bd refile (e.g., "town", "perch", "pe-")
+}
+
+// RefileDialog represents the refile target selection menu.
+type RefileDialog struct {
+	IssueID   string         // Issue being refiled
+	Rigs      []data.Rig     // Available rigs
+	Targets   []RefileTarget // Computed targets from rigs
+	Selection int            // Currently selected target
 }
 
 // IsDestructive returns true if the action type requires confirmation.
