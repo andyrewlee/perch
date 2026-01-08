@@ -655,6 +655,40 @@ func TestGolden_DetailsPanels(t *testing.T) {
 			width:  50,
 			height: 20,
 		},
+		{
+			name:   "beads_routing_view",
+			golden: "details_beads_routing",
+			state: func() *SidebarState {
+				s := NewSidebarState()
+				s.Section = SectionBeads
+				s.BeadsScope = BeadsScopeRig
+				s.Beads = []beadItem{} // No beads selected, shows routing view
+				return s
+			},
+			snap: &data.Snapshot{
+				Routes: &data.Routes{
+					Entries: map[string]data.BeadRoute{
+						"hq-": {
+							Prefix:   "hq-",
+							Location: "/Users/test/.beads/",
+							Rig:      "",
+						},
+						"pe-": {
+							Prefix:   "pe-",
+							Location: "perch/mayor/rig",
+							Rig:      "perch",
+						},
+						"gt-": {
+							Prefix:   "gt-",
+							Location: "gastown/rig",
+							Rig:      "gastown",
+						},
+					},
+				},
+			},
+			width:  60,
+			height: 25,
+		},
 	}
 
 	for _, tt := range tests {
