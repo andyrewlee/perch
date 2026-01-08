@@ -1,4 +1,5 @@
   No open rig issues
   (5 closed)
+  Press 'x' to clear filters
   Press 's' to switch scope
   Press 'r' to refresh

@@ -1,3 +1,4 @@
   No rig-level issues
+  Press 'x' to clear filters
   Press 's' to switch scope
   Press 'r' to refresh
