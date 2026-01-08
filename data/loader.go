@@ -729,6 +729,108 @@ func (l *Loader) LoadPatrolFormulasHealth(ctx context.Context) *PatrolFormulasHe
 	return health
 }
 
+// IssueDependency represents a dependency relationship between issues.
+type IssueDependency struct {
+	ID          string    `json:"id"`          // The dependency issue ID
+	Title       string    `json:"title"`       // Dependency issue title
+	Status      string    `json:"status"`      // Dependency issue status
+	Type        string    `json:"type"`        // Dependency issue type
+	IsBlocking  bool      `json:"is_blocking"` // True if this blocks the parent issue
+	AddedAt     time.Time `json:"added_at"`    // When dependency was added
+}
+
+// LoadDependencies loads dependencies for an issue.
+// Returns both issues that block this issue (dependencies) and issues this blocks (dependents).
+func (l *Loader) LoadDependencies(ctx context.Context, issueID string) (dependencies, dependents []IssueDependency, err error) {
+	// Use bd dep list to get dependency information
+	// Output format: "pe-abc blocks pe-def"
+	stdout, _, execErr := l.Runner.Exec(ctx, l.TownRoot, "bd", "dep", "list", issueID)
+	if execErr != nil {
+		// If command fails, return empty - dependencies may not be supported
+		return nil, nil, nil
+	}
+
+	// Parse output
+	lines := strings.Split(string(stdout), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: "pe-abc blocks pe-def" means pe-abc is blocked by pe-def
+		// The issue we're querying is the one on the left
+		parts := strings.SplitN(line, " blocks ", 2)
+		if len(parts) == 2 {
+			// parts[0] is our issue, parts[1] is what blocks us
+			blockedBy := strings.TrimSpace(parts[1])
+			// We need to load the full issue details
+			issueData, _, showErr := l.Runner.Exec(ctx, l.TownRoot, "bd", "show", "--format", "json", blockedBy)
+			if showErr == nil {
+				var depIssue Issue
+				if json.Unmarshal(issueData, &depIssue) == nil {
+					dependencies = append(dependencies, IssueDependency{
+						ID:         depIssue.ID,
+						Title:      depIssue.Title,
+						Status:     depIssue.Status,
+						Type:       depIssue.IssueType,
+						IsBlocking: true,
+					})
+				}
+			}
+		}
+	}
+
+	// Load dependents by checking which issues have us as a dependency
+	// This requires scanning all issues or using bd blocked-by
+	// For now, we'll return empty for dependents - can be enhanced later
+	// A full implementation would use bd show --json on all issues to find reverse deps
+
+	return dependencies, dependents, nil
+}
+
+// SearchIssues searches for issues by title or ID.
+// Used for dependency selection UI.
+func (l *Loader) SearchIssues(ctx context.Context, query string, limit int) ([]Issue, error) {
+	if query == "" {
+		// If no query, return recent open issues
+		stdout, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "list", "--status=open", "--format=json", "--limit", fmt.Sprintf("%d", limit))
+		if err != nil {
+			return nil, fmt.Errorf("bd list failed: %w", err)
+		}
+		var issues []Issue
+		if err := json.Unmarshal(stdout, &issues); err != nil {
+			return nil, fmt.Errorf("parse failed: %w", err)
+		}
+		return issues, nil
+	}
+
+	// For search, we need to list all open issues and filter
+	stdout, _, err := l.Runner.Exec(ctx, l.TownRoot, "bd", "list", "--status=open", "--format=json")
+	if err != nil {
+		return nil, fmt.Errorf("bd list failed: %w", err)
+	}
+
+	var allIssues []Issue
+	if err := json.Unmarshal(stdout, &allIssues); err != nil {
+		return nil, fmt.Errorf("parse failed: %w", err)
+	}
+
+	// Filter by query (case-insensitive substring match on title and ID)
+	query = strings.ToLower(query)
+	var results []Issue
+	for _, issue := range allIssues {
+		if strings.Contains(strings.ToLower(issue.Title), query) ||
+			strings.Contains(strings.ToLower(issue.ID), query) {
+			results = append(results, issue)
+			if len(results) >= limit {
+				break
+			}
+		}
+	}
+
+	return results, nil
+}
+
 
 // LoadWorktrees scans crew directories across all rigs to find cross-rig worktrees.
 func (l *Loader) LoadWorktrees(ctx context.Context, rigs []string) ([]Worktree, error) {

@@ -61,6 +61,7 @@ type Model struct {
 	commentForm     *CommentForm
 	inputDialog     *InputDialog
 	presetNudgeMenu *PresetNudgeMenu
+	depDialog       *DependencyDialog // Dependency management dialog
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -537,6 +538,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleInputKey(msg)
 	}
 
+	// Handle dependency dialog
+	if m.depDialog != nil {
+		return m.handleDependencyDialogKey(msg)
+	}
+
 	// Handle preset nudge menu
 	if m.presetNudgeMenu != nil {
 		return m.handlePresetNudgeMenuKey(msg)
@@ -665,6 +671,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "d":
+		// Context-dependent: Manage dependencies (Beads section) or Delete rig (Rigs section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			// Open dependency management dialog for selected bead
+			if len(m.sidebar.Beads) == 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
+				m.setStatus("No bead selected", true)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			bead := m.sidebar.Beads[m.sidebar.Selection]
+			// Load current dependencies when opening dialog
+			return m, m.openDependencyDialog(bead.ID(), bead.Label())
+		}
 		// Delete selected rig (requires confirmation)
 		if m.selectedRig == "" {
 			m.setStatus("No rig selected. Use j/k to select a rig.", true)
@@ -1660,6 +1677,203 @@ func (m Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleDependencyDialogKey handles key presses in the dependency management dialog.
+func (m Model) handleDependencyDialogKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	dialog := m.depDialog
+
+	switch msg.String() {
+	case "esc", "q":
+		if dialog.SearchQuery != "" || dialog.Mode == "remove" {
+			// Escape from search or remove mode back to view mode
+			dialog.SearchQuery = ""
+			dialog.Selection = 0
+			dialog.Mode = "view"
+			return m, nil
+		}
+		// Close dialog entirely
+		m.depDialog = nil
+		m.setStatus("Dependency management cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+
+	case "a":
+		// Switch to add mode
+		dialog.Mode = "add"
+		dialog.SearchQuery = ""
+		dialog.Selection = 0
+		dialog.SearchResults = nil
+		return m, nil
+
+	case "r":
+		// Switch to remove mode (shows current dependencies)
+		dialog.Mode = "remove"
+		dialog.Selection = 0
+		// Load dependencies for removal
+		return m, m.loadDependenciesForRemoval()
+
+	case "j", "down":
+		// Move selection down
+		maxItems := len(dialog.SearchResults)
+		if dialog.Mode == "remove" {
+			maxItems = len(dialog.Dependencies)
+		}
+		if maxItems > 0 && dialog.Selection < maxItems-1 {
+			dialog.Selection++
+		}
+		return m, nil
+
+	case "k", "up":
+		// Move selection up
+		if dialog.Selection > 0 {
+			dialog.Selection--
+		}
+		return m, nil
+
+	case "enter":
+		if dialog.Mode == "add" {
+			// Add selected dependency
+			if len(dialog.SearchResults) > 0 && dialog.Selection < len(dialog.SearchResults) {
+				selected := dialog.SearchResults[dialog.Selection]
+				if selected.ID == dialog.IssueID {
+					dialog.Status = "Cannot add self as dependency"
+					return m, nil
+				}
+				// Execute add dependency command
+				m.depDialog = nil
+				m.setStatus("Adding dependency: "+dialog.IssueID+" depends on "+selected.ID, false)
+				return m, m.addDependencyCmd(dialog.IssueID, selected.ID)
+			}
+		} else if dialog.Mode == "remove" {
+			// Remove selected dependency
+			if len(dialog.Dependencies) > 0 && dialog.Selection < len(dialog.Dependencies) {
+				selected := dialog.Dependencies[dialog.Selection]
+				m.depDialog = nil
+				m.setStatus("Removing dependency: "+dialog.IssueID+" no longer depends on "+selected.ID, false)
+				return m, m.removeDependencyCmd(dialog.IssueID, selected.ID)
+			}
+		}
+		return m, nil
+
+	case "backspace":
+		// Handle search input
+		if len(dialog.SearchQuery) > 0 {
+			dialog.SearchQuery = dialog.SearchQuery[:len(dialog.SearchQuery)-1]
+			dialog.Selection = 0
+			if dialog.SearchQuery == "" {
+				dialog.SearchResults = nil
+			}
+			return m, m.performDependencySearch()
+		}
+		return m, nil
+
+	default:
+		// Handle search input (characters)
+		if dialog.Mode == "add" && len(msg.String()) == 1 {
+			dialog.SearchQuery += msg.String()
+			dialog.Selection = 0
+			return m, m.performDependencySearch()
+		}
+		return m, nil
+	}
+}
+
+// loadDependenciesForRemoval loads the current dependencies for the remove mode.
+func (m Model) loadDependenciesForRemoval() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		loader := &data.Loader{TownRoot: m.townRoot, Runner: &actionRunner{}}
+		deps, _, err := loader.LoadDependencies(ctx, m.depDialog.IssueID)
+		if err != nil {
+			m.depDialog.Status = "Error loading dependencies: " + err.Error()
+		} else {
+			m.depDialog.Dependencies = deps
+			m.depDialog.Status = ""
+		}
+		return nil
+	}
+}
+
+// performDependencySearch performs a search for issues to add as dependencies.
+func (m Model) performDependencySearch() tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		loader := &data.Loader{TownRoot: m.townRoot, Runner: &actionRunner{}}
+		results, err := loader.SearchIssues(ctx, m.depDialog.SearchQuery, 10)
+		if err != nil {
+			m.depDialog.Status = "Search error: " + err.Error()
+		} else {
+			m.depDialog.SearchResults = results
+			m.depDialog.Status = ""
+		}
+		return nil
+	}
+}
+
+// openDependencyDialog opens the dependency management dialog for an issue.
+func (m Model) openDependencyDialog(issueID, issueTitle string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		loader := &data.Loader{TownRoot: m.townRoot, Runner: &actionRunner{}}
+		deps, _, err := loader.LoadDependencies(ctx, issueID)
+		if err != nil {
+			m.setStatus("Failed to load dependencies: "+err.Error(), true)
+			return statusExpireCmd(3 * time.Second)
+		}
+
+		m.depDialog = &DependencyDialog{
+			IssueID:      issueID,
+			IssueTitle:   issueTitle,
+			Mode:         "view",
+			Dependencies: deps,
+			Selection:    0,
+		}
+		return nil
+	}
+}
+
+// addDependencyCmd executes the add dependency command.
+func (m Model) addDependencyCmd(issueID, dependsOnID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.AddDependency(ctx, issueID, dependsOnID)
+		if err != nil {
+			return actionCompleteMsg{
+				action: ActionAddDependency,
+				err:    err,
+			}
+		}
+		return actionCompleteMsg{
+			action: ActionAddDependency,
+		}
+	}
+}
+
+// removeDependencyCmd executes the remove dependency command.
+func (m Model) removeDependencyCmd(issueID, dependsOnID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.RemoveDependency(ctx, issueID, dependsOnID)
+		if err != nil {
+			return actionCompleteMsg{
+				action: ActionRemoveDependency,
+				err:    err,
+			}
+		}
+		return actionCompleteMsg{
+			action: ActionRemoveDependency,
+		}
+	}
+}
+
 // handleAttachKey handles key presses when the attach dialog is shown.
 func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -2184,6 +2398,10 @@ func (m Model) View() string {
 
 	if m.presetNudgeMenu != nil {
 		return m.renderPresetNudgeMenu()
+	}
+
+	if m.depDialog != nil {
+		return m.renderDependencyDialog()
 	}
 
 	return m.renderLayout()
@@ -2823,6 +3041,151 @@ func (m Model) renderPresetNudgeMenu() string {
 		BorderForeground(lipgloss.Color("63")).
 		Padding(1, 2).
 		Width(menuWidth)
+
+	box := boxStyle.Render(content)
+
+	// Center on screen
+	boxHeight := lipgloss.Height(box)
+	boxWidth := lipgloss.Width(box)
+
+	paddingTop := (m.height - boxHeight) / 2
+	paddingLeft := (m.width - boxWidth) / 2
+
+	if paddingTop < 0 {
+		paddingTop = 0
+	}
+	if paddingLeft < 0 {
+		paddingLeft = 0
+	}
+
+	return strings.Repeat("\n", paddingTop) + strings.Repeat(" ", paddingLeft) + box
+}
+
+// renderDependencyDialog renders the dependency management dialog overlay
+func (m Model) renderDependencyDialog() string {
+	dialog := m.depDialog
+	dialogWidth := 70
+	dialogHeight := 25
+	if dialogWidth > m.width-4 {
+		dialogWidth = m.width - 4
+	}
+	if dialogHeight > m.height-4 {
+		dialogHeight = m.height - 4
+	}
+	innerWidth := dialogWidth - 4
+
+	var b strings.Builder
+
+	// Title
+	title := formTitleStyle.Render("Manage Dependencies: " + dialog.IssueID)
+	b.WriteString(title)
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render(truncateStr(dialog.IssueTitle, innerWidth)))
+	b.WriteString("\n\n")
+
+	// Mode indicator and current dependencies count
+	modeStr := "View"
+	if dialog.Mode == "add" {
+		modeStr = "Add Dependency"
+	} else if dialog.Mode == "remove" {
+		modeStr = "Remove Dependency"
+	}
+	b.WriteString(headerStyle.Render("Mode: " + modeStr))
+	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("Blocked by: %d issues\n", len(dialog.Dependencies)))
+	b.WriteString("\n")
+
+	// View mode: show current dependencies
+	if dialog.Mode == "view" {
+		b.WriteString(headerStyle.Render("Current Dependencies (blocked by):\n"))
+		if len(dialog.Dependencies) == 0 {
+			b.WriteString(mutedStyle.Render("  No dependencies\n"))
+		} else {
+			for _, dep := range dialog.Dependencies {
+				line := fmt.Sprintf("  [%s] %s", dep.ID, truncateStr(dep.Title, innerWidth-20))
+				if dep.Status != "" {
+					line += fmt.Sprintf(" (%s)", dep.Status)
+				}
+				b.WriteString(line)
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("Actions:"))
+		b.WriteString("\n")
+		b.WriteString("  [a] Add dependency  [r] Remove dependency  [esc/q] Close")
+	} else if dialog.Mode == "add" {
+		// Add mode: search and select issues
+		b.WriteString(headerStyle.Render("Search for issues to add as dependency:\n"))
+		b.WriteString("\n")
+		b.WriteString("Search: " + dialog.SearchQuery + "_")
+		b.WriteString("\n\n")
+
+		if len(dialog.SearchResults) > 0 {
+			maxItems := 8
+			for i, result := range dialog.SearchResults {
+				if i >= maxItems {
+					break
+				}
+				prefix := "  "
+				if i == dialog.Selection {
+					prefix = "> "
+				}
+				line := fmt.Sprintf("%s[%s] %s", prefix, result.ID, truncateStr(result.Title, innerWidth-20))
+				if result.Status != "" {
+					line += fmt.Sprintf(" (%s)", result.Status)
+				}
+				b.WriteString(line)
+				b.WriteString("\n")
+			}
+		} else if dialog.SearchQuery != "" {
+			b.WriteString(mutedStyle.Render("  No results found"))
+		} else {
+			b.WriteString(mutedStyle.Render("  Type to search for issues..."))
+		}
+		b.WriteString("\n\n")
+		b.WriteString(mutedStyle.Render("Type to search • j/k: select • enter: add • esc: back"))
+	} else if dialog.Mode == "remove" {
+		// Remove mode: select dependency to remove
+		b.WriteString(headerStyle.Render("Select dependency to remove:\n"))
+		b.WriteString("\n")
+
+		if len(dialog.Dependencies) == 0 {
+			b.WriteString(mutedStyle.Render("  No dependencies to remove"))
+		} else {
+			maxItems := 8
+			for i, dep := range dialog.Dependencies {
+				if i >= maxItems {
+					break
+				}
+				prefix := "  "
+				if i == dialog.Selection {
+					prefix = "> "
+				}
+				line := fmt.Sprintf("%s[%s] %s", prefix, dep.ID, truncateStr(dep.Title, innerWidth-20))
+				b.WriteString(line)
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render("j/k: select • enter: remove • esc: back"))
+	}
+
+	// Status message
+	if dialog.Status != "" {
+		b.WriteString("\n\n")
+		b.WriteString(hudErrorStyle.Render(dialog.Status))
+	}
+
+	content := b.String()
+
+	// Wrap in box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(dialogWidth).
+		MaxHeight(dialogHeight)
 
 	box := boxStyle.Render(content)
 

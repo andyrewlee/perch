@@ -57,6 +57,11 @@ const (
 	ActionStartRefinery   // Start a Refinery (rig-specific)
 	ActionStopRefinery    // Stop a Refinery
 	ActionRestartRefineryAlt // Restart a Refinery (alternative naming for clarity)
+
+	// Dependency management
+	ActionManageDeps     // Open dependency management dialog
+	ActionAddDependency  // Add a dependency (blocked-by relationship)
+	ActionRemoveDependency
 )
 
 // Action represents a user-triggered action with its result.
@@ -422,6 +427,19 @@ func (r *ActionRunner) RestartRefineryAgent(ctx context.Context, rig string) err
 	return r.runCommand(ctx, "gt", "refinery", "restart", rig)
 }
 
+// AddDependency adds a dependency relationship between two issues.
+// issueID depends on dependsOnID (issueID is blocked by dependsOnID).
+// Runs: bd dep add <issue-id> <depends-on-id>
+func (r *ActionRunner) AddDependency(ctx context.Context, issueID, dependsOnID string) error {
+	return r.runCommand(ctx, "bd", "dep", "add", issueID, dependsOnID)
+}
+
+// RemoveDependency removes a dependency relationship between two issues.
+// Runs: bd dep remove <issue-id> <depends-on-id>
+func (r *ActionRunner) RemoveDependency(ctx context.Context, issueID, dependsOnID string) error {
+	return r.runCommand(ctx, "bd", "dep", "remove", issueID, dependsOnID)
+}
+
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
@@ -490,6 +508,20 @@ type InputDialog struct {
 	ExtraInput  string // Second input field (e.g., message body for mail)
 	ExtraPrompt string // Prompt for second field
 	Field       int    // 0 = first field, 1 = second field
+}
+
+// DependencyDialog represents a dialog for managing issue dependencies.
+type DependencyDialog struct {
+	IssueID       string                   // The issue whose dependencies we're managing
+	IssueTitle    string                   // Title of the issue (for display)
+	Mode          string                   // "add" or "remove"
+	SearchQuery   string                   // Current search query
+	SearchResults []data.Issue            // Issues matching search
+	Dependencies  []data.IssueDependency  // Current dependencies
+	Dependents    []data.IssueDependency  // Current dependents (issues we block)
+	Selection     int                      // Selected item in results list
+	Loading       bool                     // True while loading data
+	Status        string                   // Status message
 }
 
 // PresetNudge represents a preset nudge message option.
