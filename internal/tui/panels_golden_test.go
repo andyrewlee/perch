@@ -143,6 +143,25 @@ func TestGolden_SidebarPanels(t *testing.T) {
 			height: 20,
 		},
 		{
+			name:   "agents_section_with_hq_bead_id",
+			golden: "sidebar_agents_hq_bead_id",
+			state: func() *SidebarState {
+				s := NewSidebarState()
+				s.Section = SectionAgents
+				s.AgentsLoading = false
+				s.Selection = 0
+				s.Agents = []agentItem{
+					{a: data.Agent{Name: "mayor", Address: "mayor", Running: true, HasWork: true, HookedBeadID: "hq-mayor", HookedStatus: "in_progress", UnreadMail: 0}},
+					{a: data.Agent{Name: "deacon", Address: "deacon", Running: true, HasWork: true, HookedBeadID: "hq-deacon", HookedStatus: "hooked", UnreadMail: 0}},
+					{a: data.Agent{Name: "able", Address: "perch/polecats/able", Running: true, HasWork: true, HookedBeadID: "pe-001", HookedStatus: "in_progress", UnreadMail: 0}},
+				}
+				return s
+			},
+			snap:   &data.Snapshot{Town: &data.TownStatus{}, OperationalState: &data.OperationalState{WatchdogHealthy: true}},
+			width:  50,
+			height: 20,
+		},
+		{
 			name:   "mergequeue_section_with_items",
 			golden: "sidebar_mergequeue_items",
 			state: func() *SidebarState {
@@ -251,6 +270,26 @@ func TestGolden_SidebarPanels(t *testing.T) {
 				s.BeadsScope = BeadsScopeRig
 				s.BeadsTotalCount = 3
 				s.Beads = nil // All filtered out (closed)
+				return s
+			},
+			snap:   nil,
+			width:  40,
+			height: 20,
+		},
+		{
+			name:   "beads_section_town_scope_with_hq_prefix",
+			golden: "sidebar_beads_town_scope",
+			state: func() *SidebarState {
+				s := NewSidebarState()
+				s.Section = SectionBeads
+				s.BeadsLoading = false
+				s.BeadsScope = BeadsScopeTown
+				s.BeadsTotalCount = 3
+				s.Selection = 0
+				s.Beads = []beadItem{
+					{issue: data.Issue{ID: "hq-mayor", Title: "Mayor agent bead", Status: "in_progress", Priority: 0}},
+					{issue: data.Issue{ID: "hq-deacon", Title: "Deacon agent bead", Status: "open", Priority: 1}},
+				}
 				return s
 			},
 			snap:   nil,
@@ -371,6 +410,40 @@ func TestGolden_DetailsPanels(t *testing.T) {
 			},
 			width:  50,
 			height: 20,
+		},
+		{
+			name:   "identity_details_with_hq_bead_ids",
+			golden: "details_identity_hq_beads",
+			state: func() *SidebarState {
+				s := NewSidebarState()
+				s.Section = SectionIdentity
+				return s
+			},
+			snap: &data.Snapshot{
+				Identity: &data.Identity{
+					Name:     "Test User",
+					Username: "testuser",
+					Email:    "test@example.com",
+					Source:   "git",
+					LastCommits: []data.CommitInfo{
+						{Hash: "abc123", Subject: "Add initial implementation"},
+					},
+					LastBeads: []data.BeadInfo{
+						{ID: "hq-mayor", Title: "Mayor agent bead", Status: "in_progress"},
+						{ID: "hq-deacon", Title: "Deacon agent bead", Status: "open"},
+						{ID: "pe-001", Title: "Implement TUI panels", Status: "closed"},
+					},
+				},
+				Mail: []data.MailMessage{
+					{ID: "mail-001", From: "mayor", Subject: "Work assigned", Read: false},
+				},
+				Routes: []data.Route{
+					{Prefix: "hq-", Path: "."},
+					{Prefix: "pe-", Path: "perch"},
+				},
+			},
+			width:  50,
+			height: 30,
 		},
 		{
 			name:   "rig_details",

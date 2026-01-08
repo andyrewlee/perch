@@ -1,0 +1,30 @@
+╭──────────────────────────────────────────────╮
+│ Details                                      │
+│ Identity & Provenance                        │
+│ Who you are and what you've touched          │
+│                                              │
+│ Actor                                        │
+│ Name:     Test User                          │
+│ Username: testuser                           │
+│ Email:    test@example.com                   │
+│ Source:   git                                │
+│                                              │
+│ Beads Routes                                 │
+│ Prefix routing (routes.jsonl)                │
+│ hq- → .                                      │
+│ pe- → perch                                  │
+│                                              │
+│ Recent Commits                               │
+│ abc123 Add initial implementation            │
+│                                              │
+│ Recent Beads                                 │
+│ ▶ hq-mayor Mayor agent bead                  │
+│ ○ hq-deacon Deacon agent bead                │
+│ ✓ pe-001 Implement TUI panels                │
+│                                              │
+│ Unread Mail (1)                              │
+│ * Work assigned                              │
+│   from mayor                                 │
+│                                              │
+│                                              │
+╰──────────────────────────────────────────────╯
