@@ -791,7 +791,7 @@ func TestRenderMergeQueueList_ServicesStoppedWithError(t *testing.T) {
 }
 
 // TestRenderMergeQueueList_RefineryStoppedWithError tests that when refinery is stopped
-// and there's a load error, we show "Services stopped / stale" instead of "Load error".
+// and there's a load error, we show "Refinery stopped" instead of "Load error".
 func TestRenderMergeQueueList_RefineryStoppedWithError(t *testing.T) {
 	state := NewSidebarState()
 	state.MQsLoading = false
@@ -813,9 +813,9 @@ func TestRenderMergeQueueList_RefineryStoppedWithError(t *testing.T) {
 
 	result := renderMergeQueueList(state, snap, nil, nil, false, 40, 10)
 
-	// Should show "Services stopped / stale" because refinery is stopped
-	if !strings.Contains(result, "Services stopped") {
-		t.Errorf("expected 'Services stopped' when refinery is stopped, got: %s", result)
+	// Should show "Refinery stopped" because refinery is specifically not running
+	if !strings.Contains(result, "Refinery stopped") {
+		t.Errorf("expected 'Refinery stopped' when refinery is stopped, got: %s", result)
 	}
 	if strings.Contains(result, "Load error") {
 		t.Errorf("should NOT show 'Load error' when refinery is stopped, got: %s", result)

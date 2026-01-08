@@ -427,19 +427,6 @@ func (r *ActionRunner) RestartRefineryAgent(ctx context.Context, rig string) err
 	return r.runCommand(ctx, "gt", "refinery", "restart", rig)
 }
 
-// AddDependency adds a dependency relationship between two issues.
-// issueID depends on dependsOnID (issueID is blocked by dependsOnID).
-// Runs: bd dep add <issue-id> <depends-on-id>
-func (r *ActionRunner) AddDependency(ctx context.Context, issueID, dependsOnID string) error {
-	return r.runCommand(ctx, "bd", "dep", "add", issueID, dependsOnID)
-}
-
-// RemoveDependency removes a dependency relationship between two issues.
-// Runs: bd dep remove <issue-id> <depends-on-id>
-func (r *ActionRunner) RemoveDependency(ctx context.Context, issueID, dependsOnID string) error {
-	return r.runCommand(ctx, "bd", "dep", "remove", issueID, dependsOnID)
-}
-
 // runCommand executes a shell command and returns any error.
 func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	_, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)

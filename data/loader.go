@@ -729,18 +729,9 @@ func (l *Loader) LoadPatrolFormulasHealth(ctx context.Context) *PatrolFormulasHe
 	return health
 }
 
-// IssueDependency represents a dependency relationship between issues.
-type IssueDependency struct {
-	ID          string    `json:"id"`          // The dependency issue ID
-	Title       string    `json:"title"`       // Dependency issue title
-	Status      string    `json:"status"`      // Dependency issue status
-	Type        string    `json:"type"`        // Dependency issue type
-	IsBlocking  bool      `json:"is_blocking"` // True if this blocks the parent issue
-	AddedAt     time.Time `json:"added_at"`    // When dependency was added
-}
-
-// LoadDependencies loads dependencies for an issue.
-// Returns both issues that block this issue (dependencies) and issues this blocks (dependents).
+// LoadDependencies loads dependencies for an issue using the dependency dialog format.
+// Returns data.IssueDependency values compatible with the TUI dependency dialog.
+// Note: This is a simplified version - for full dependency info, use LoadIssueDependencies.
 func (l *Loader) LoadDependencies(ctx context.Context, issueID string) (dependencies, dependents []IssueDependency, err error) {
 	// Use bd dep list to get dependency information
 	// Output format: "pe-abc blocks pe-def"
@@ -769,11 +760,13 @@ func (l *Loader) LoadDependencies(ctx context.Context, issueID string) (dependen
 				var depIssue Issue
 				if json.Unmarshal(issueData, &depIssue) == nil {
 					dependencies = append(dependencies, IssueDependency{
-						ID:         depIssue.ID,
-						Title:      depIssue.Title,
-						Status:     depIssue.Status,
-						Type:       depIssue.IssueType,
-						IsBlocking: true,
+						ID:        depIssue.ID,
+						Title:     depIssue.Title,
+						Status:    depIssue.Status,
+						IssueType: depIssue.IssueType,
+						Priority:  depIssue.Priority,
+						UpdatedAt: depIssue.UpdatedAt,
+						DepType:   "blocked_by", // This issue is blocked by depIssue
 					})
 				}
 			}
