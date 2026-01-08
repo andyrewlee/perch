@@ -444,6 +444,12 @@ type SidebarState struct {
 	// Beads scope: Town (hq-*) vs Rig
 	BeadsScope BeadsScope
 
+	// Beads filters
+	BeadsStatusFilter   string // Empty = show all, "open", "in_progress", "hooked", "closed"
+	BeadsTypeFilter     string // Empty = show all, "task", "bug", "feature", "epic"
+	BeadsPriorityFilter int    // -1 = all, 0-4 = specific priority
+	BeadsAssigneeFilter string // Empty = show all, specific assignee otherwise
+
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
 	LifecycleAgentFilter string                  // Empty = show all
@@ -476,12 +482,14 @@ type SidebarState struct {
 // NewSidebarState creates a new sidebar state
 func NewSidebarState() *SidebarState {
 	return &SidebarState{
-		Section:        SectionIdentity,
-		Selection:      0,
-		AgentsLoading:  true, // Start in loading state until first successful refresh
-		ConvoysLoading: true, // Start in loading state until first successful refresh
-		MQsLoading:     true, // Start in loading state until first successful refresh
-		MailLoading:    true, // Start in loading state until first successful refresh
+		Section:            SectionIdentity,
+		Selection:          0,
+		AgentsLoading:      true, // Start in loading state until first successful refresh
+		ConvoysLoading:     true, // Start in loading state until first successful refresh
+		MQsLoading:         true, // Start in loading state until first successful refresh
+		BeadsLoading:       true, // Start in loading state until first successful refresh
+		MailLoading:        true, // Start in loading state until first successful refresh
+		BeadsPriorityFilter: -1,  // -1 = show all priorities
 	}
 }
 
@@ -561,6 +569,96 @@ func (s *SidebarState) ToggleBeadsScope() {
 // BeadsScopeLabel returns a label describing the current beads scope.
 func (s *SidebarState) BeadsScopeLabel() string {
 	return s.BeadsScope.String()
+}
+
+// CycleBeadsStatusFilter cycles through the status filter.
+func (s *SidebarState) CycleBeadsStatusFilter() {
+	statuses := []string{"", "open", "hooked", "in_progress", "closed"}
+	for i, status := range statuses {
+		if s.BeadsStatusFilter == status {
+			s.BeadsStatusFilter = statuses[(i+1)%len(statuses)]
+			s.Selection = 0
+			return
+		}
+	}
+	s.BeadsStatusFilter = statuses[1] // Default to "open" if not found
+	s.Selection = 0
+}
+
+// CycleBeadsTypeFilter cycles through the type filter.
+func (s *SidebarState) CycleBeadsTypeFilter() {
+	types := []string{"", "task", "bug", "feature", "epic"}
+	for i, t := range types {
+		if s.BeadsTypeFilter == t {
+			s.BeadsTypeFilter = types[(i+1)%len(types)]
+			s.Selection = 0
+			return
+		}
+	}
+	s.BeadsTypeFilter = types[0] // Default to "all" if not found
+	s.Selection = 0
+}
+
+// CycleBeadsPriorityFilter cycles through the priority filter.
+func (s *SidebarState) CycleBeadsPriorityFilter() {
+	priorities := []int{-1, 0, 1, 2, 3, 4} // -1=all, 0-4=P0-P4
+	for i, p := range priorities {
+		if s.BeadsPriorityFilter == p {
+			s.BeadsPriorityFilter = priorities[(i+1)%len(priorities)]
+			s.Selection = 0
+			return
+		}
+	}
+	s.BeadsPriorityFilter = -1 // Default to all if not found
+	s.Selection = 0
+}
+
+// SetBeadsAssigneeFilter sets the assignee filter to the assignee of the currently selected bead.
+// If the filter is already set to that assignee, clears the filter.
+func (s *SidebarState) SetBeadsAssigneeFilter() {
+	if s.Selection < 0 || s.Selection >= len(s.Beads) {
+		return
+	}
+	assignee := s.Beads[s.Selection].issue.Assignee
+	if assignee == "" {
+		return // No assignee to filter by
+	}
+	if s.BeadsAssigneeFilter == assignee {
+		s.BeadsAssigneeFilter = "" // Toggle off if already set
+	} else {
+		s.BeadsAssigneeFilter = assignee
+	}
+	s.Selection = 0
+}
+
+// ClearBeadsFilters clears all beads filters.
+func (s *SidebarState) ClearBeadsFilters() {
+	s.BeadsStatusFilter = ""
+	s.BeadsTypeFilter = ""
+	s.BeadsPriorityFilter = -1
+	s.BeadsAssigneeFilter = ""
+	s.Selection = 0
+}
+
+// BeadsFilterSummary returns a summary of active filters.
+func (s *SidebarState) BeadsFilterSummary() string {
+	var parts []string
+	if s.BeadsStatusFilter != "" {
+		parts = append(parts, s.BeadsStatusFilter)
+	}
+	if s.BeadsTypeFilter != "" {
+		parts = append(parts, s.BeadsTypeFilter)
+	}
+	if s.BeadsPriorityFilter >= 0 {
+		parts = append(parts, fmt.Sprintf("P%d", s.BeadsPriorityFilter))
+	}
+	if s.BeadsAssigneeFilter != "" {
+		parts = append(parts, "@"+s.BeadsAssigneeFilter)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
 }
 
 // UpdateFromSnapshot refreshes the sidebar data from a snapshot
@@ -750,14 +848,70 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 		s.Alerts[i] = alertItem{err}
 	}
 
-	// Update beads (filtered by scope)
-	s.Beads = nil
-	for _, issue := range snap.Issues {
-		isTownIssue := strings.HasPrefix(issue.ID, "hq-")
-		if s.BeadsScope == BeadsScopeTown && isTownIssue {
+	// Update beads with loading/error tracking
+	// Filter by scope AND apply filters (status, type, priority, assignee)
+	if snap.Issues != nil {
+		s.Beads = nil
+		s.BeadsTotalCount = 0
+		for _, issue := range snap.Issues {
+			isTownIssue := strings.HasPrefix(issue.ID, "hq-")
+			scopeMatches := (s.BeadsScope == BeadsScopeTown && isTownIssue) ||
+				(s.BeadsScope == BeadsScopeRig && !isTownIssue)
+
+			if !scopeMatches {
+				continue
+			}
+
+			s.BeadsTotalCount++
+
+			// Apply status filter
+			if s.BeadsStatusFilter != "" && issue.Status != s.BeadsStatusFilter {
+				continue
+			}
+
+			// Apply type filter
+			if s.BeadsTypeFilter != "" && issue.IssueType != s.BeadsTypeFilter {
+				continue
+			}
+
+			// Apply priority filter
+			if s.BeadsPriorityFilter >= 0 && issue.Priority != s.BeadsPriorityFilter {
+				continue
+			}
+
+			// Apply assignee filter
+			if s.BeadsAssigneeFilter != "" && issue.Assignee != s.BeadsAssigneeFilter {
+				continue
+			}
+
+			// Exclude closed issues only when not explicitly filtering for them
+			if issue.Status == "closed" && s.BeadsStatusFilter != "closed" {
+				continue
+			}
+
 			s.Beads = append(s.Beads, beadItem{issue})
-		} else if s.BeadsScope == BeadsScopeRig && !isTownIssue {
-			s.Beads = append(s.Beads, beadItem{issue})
+		}
+		s.BeadsLastRefresh = snap.LoadedAt
+		s.BeadsLoadError = nil
+		s.BeadsLoading = false
+	} else {
+		// Issues failed to load - find the error if any
+		s.BeadsLoading = false
+		for _, loadErr := range snap.LoadErrors {
+			if loadErr.Source == "issues" {
+				s.BeadsLoadError = errors.New(loadErr.Error)
+				break
+			}
+		}
+		// Preserve s.Beads (last-known value) - don't clear it
+	}
+
+	// Update operator console (subsystem health)
+	s.OperatorState = BuildOperatorState(snap)
+	s.Operator = nil
+	if s.OperatorState != nil {
+		for _, sub := range s.OperatorState.Subsystems {
+			s.Operator = append(s.Operator, operatorItem{sub})
 		}
 	}
 
@@ -946,11 +1100,38 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			headerText = fmt.Sprintf("Alerts (%d)", len(state.Alerts))
 		}
 		// For beads, show scope toggle state [R]ig or [T]own
+		// Also show active filters and filter badge if issues are filtered
 		if sec == SectionBeads {
 			if state.BeadsScope == BeadsScopeTown {
-				headerText = fmt.Sprintf("Beads [T] (%d)", len(state.Beads))
+				scopeBadge = "T"
+			}
+
+			// Build header with scope and filters
+			filterSummary := state.BeadsFilterSummary()
+			if filterSummary != "" {
+				// Show active filters
+				closedCount := state.BeadsTotalCount - len(state.Beads)
+				if closedCount > 0 {
+					headerText = fmt.Sprintf("Beads [%s] %s (%d+%dc)", scopeBadge, filterSummary, len(state.Beads), closedCount)
+				} else {
+					headerText = fmt.Sprintf("Beads [%s] %s (%d)", scopeBadge, filterSummary, len(state.Beads))
+				}
 			} else {
-				headerText = fmt.Sprintf("Beads [R] (%d)", len(state.Beads))
+				// No active filters, show closed count indicator
+				closedCount := state.BeadsTotalCount - len(state.Beads)
+				if closedCount > 0 {
+					headerText = fmt.Sprintf("Beads [%s] (%d+%dc)", scopeBadge, len(state.Beads), closedCount)
+				} else {
+					headerText = fmt.Sprintf("Beads [%s] (%d)", scopeBadge, len(state.Beads))
+				}
+			}
+		}
+		// For operator, show issue count if any
+		if sec == SectionOperator && state.OperatorState != nil {
+			if state.OperatorState.IssueCount > 0 {
+				headerText = fmt.Sprintf("Operator (%d!)", state.OperatorState.IssueCount)
+			} else if state.OperatorState.WarningCount > 0 {
+				headerText = fmt.Sprintf("Operator (%d⚠)", state.OperatorState.WarningCount)
 			}
 		}
 		header := renderSectionHeader(headerText, sec, isActive, state)
@@ -1615,8 +1796,33 @@ func renderBeadsEmptyState(state *SidebarState, isActive bool) string {
 	if state.BeadsScope == BeadsScopeTown {
 		scopeLabel = "town"
 	}
-	lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No %s-level issues", scopeLabel)))
+
+	// Check if filtering is excluding all results
+	hasFilters := state.BeadsStatusFilter != "" || state.BeadsTypeFilter != "" ||
+		state.BeadsPriorityFilter >= 0 || state.BeadsAssigneeFilter != ""
+
+	if hasFilters && state.BeadsTotalCount > 0 {
+		// All issues are filtered out
+		lines = append(lines, mutedStyle.Render("  No issues match filters"))
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("  (%d total in %s)", state.BeadsTotalCount, scopeLabel)))
+	} else {
+		// Check if there are issues but they're all closed
+		closedCount := state.BeadsTotalCount - len(state.Beads)
+		if closedCount > 0 && len(state.Beads) == 0 {
+			// All issues in this scope are closed
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No open %s issues", scopeLabel)))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  (%d closed)", closedCount)))
+		} else if hasError {
+			// No cached items after an error
+			lines = append(lines, mutedStyle.Render("  (no cached issues)"))
+		} else {
+			// Genuinely no issues in this scope
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  No %s-level issues", scopeLabel)))
+		}
+	}
+
 	if isActive {
+		lines = append(lines, mutedStyle.Render("  Press 'x' to clear filters"))
 		lines = append(lines, mutedStyle.Render("  Press 's' to switch scope"))
 		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
 	}
@@ -1899,6 +2105,7 @@ func renderBeadDetails(issue data.Issue, state *SidebarState, width int, depende
 	}
 
 	// Quick actions hint
+	lines = append(lines, mutedStyle.Render("Filters: e=status t=type p=priority g=assignee x=clear"))
 	lines = append(lines, mutedStyle.Render("Press 's' to switch scope (Rig/Town)"))
 	lines = append(lines, mutedStyle.Render("Press 'r' to refresh"))
 
