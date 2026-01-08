@@ -2718,6 +2718,12 @@ func (m *Model) updateQueueHealth(snap *data.Snapshot) {
 			health.PatrolFormulasFix = snap.PatrolFormulasHealth.FixMessage()
 		}
 
+		// Add migration warning if legacy agent beads detected
+		if snap.OperationalState != nil && snap.OperationalState.MigrationNeeded {
+			health.MigrationWarning = "Legacy agent beads detected (gt-mayor/gt-deacon)"
+			health.MigrationFix = snap.OperationalState.MigrationAction
+		}
+
 		// Determine refinery state from agents
 		if snap.Town != nil {
 			for _, rig := range snap.Town.Rigs {

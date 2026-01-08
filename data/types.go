@@ -309,6 +309,13 @@ type OperationalState struct {
 	// WatchdogAction is the recommended action to restore watchdog
 	WatchdogAction string `json:"watchdog_action,omitempty"`
 
+	// MigrationNeeded indicates that legacy agent bead IDs (gt-mayor, gt-deacon) exist
+	// and migration to two-level architecture (hq-mayor, hq-deacon) is needed
+	MigrationNeeded bool `json:"migration_needed"`
+
+	// MigrationAction is the recommended action to perform the migration
+	MigrationAction string `json:"migration_action,omitempty"`
+
 	// LastDeaconHeartbeat is when the deacon last checked in
 	LastDeaconHeartbeat time.Time `json:"last_deacon_heartbeat,omitempty"`
 
