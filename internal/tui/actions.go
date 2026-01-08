@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -217,14 +218,27 @@ func (r *ActionRunner) RemoveWorktree(ctx context.Context, worktreePath string) 
 // Step 1: Create issue with bd create
 // Step 2: If not skipSling, sling to target with gt sling
 func (r *ActionRunner) CreateWork(ctx context.Context, title, issueType string, priority int, rig, target string, skipSling bool) error {
-	// Step 1: Create the issue
-	// Runs: bd create --title "..." --type <type> --priority <n>
-	err := r.runCommand(ctx, "bd", "create",
+	// Step 1: Create the issue and capture the output
+	// Runs: bd create --title "..." --type <type> --priority <n> --json
+	output, err := r.runCommandWithOutput(ctx, "bd", "create",
 		"--title", title,
 		"--type", issueType,
-		"--priority", fmt.Sprintf("%d", priority))
+		"--priority", fmt.Sprintf("%d", priority),
+		"--json")
 	if err != nil {
 		return fmt.Errorf("failed to create issue: %w", err)
+	}
+
+	// Parse the issue ID from the JSON output
+	// bd create --json outputs: {"id":"pe-xxx","title":...}
+	var issue struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(output), &issue); err != nil {
+		return fmt.Errorf("failed to parse issue ID from output: %w", err)
+	}
+	if issue.ID == "" {
+		return fmt.Errorf("no issue ID in bd create output")
 	}
 
 	// If slinging is skipped, we're done
@@ -233,24 +247,13 @@ func (r *ActionRunner) CreateWork(ctx context.Context, title, issueType string, 
 	}
 
 	// Step 2: Sling the work to the target
-	// Note: We need to get the issue ID from the create output
-	// For now, we'll use a workaround - sling the most recent issue
 	// Runs: gt sling <issue-id> <rig>
-	// TODO: Parse the issue ID from bd create output
-
-	// For MVP, we'll sling by finding the latest issue
-	// This is a simplification - in a full implementation we'd parse the bd create output
 	slingTarget := rig
 	if target != "" && target != "(new polecat)" {
 		slingTarget = rig + "/" + target
 	}
 
-	// Note: gt sling needs the issue ID. For now, we skip the sling step
-	// and just create the issue. The user can sling manually.
-	// TODO: Implement proper sling with issue ID from bd create output
-	_ = slingTarget
-
-	return nil
+	return r.SlingWork(ctx, issue.ID, slingTarget)
 }
 
 // CreateBead creates a new bead (issue).
@@ -428,6 +431,20 @@ func (r *ActionRunner) runCommand(ctx context.Context, args ...string) error {
 	}
 
 	return nil
+}
+
+// runCommandWithOutput executes a shell command and returns stdout and any error.
+func (r *ActionRunner) runCommandWithOutput(ctx context.Context, args ...string) (string, error) {
+	stdout, stderr, err := r.Runner.Exec(ctx, r.TownRoot, args...)
+	if err != nil {
+		errMsg := string(stderr)
+		if errMsg != "" {
+			return "", fmt.Errorf("%s: %s", err, errMsg)
+		}
+		return "", err
+	}
+
+	return string(stdout), nil
 }
 
 // StatusMessage represents a temporary status message shown in the footer.
