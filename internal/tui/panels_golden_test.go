@@ -585,7 +585,7 @@ func TestGolden_DetailsPanels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			state := tt.state()
-			rendered := RenderDetails(state, tt.snap, tt.audit, tt.width, tt.height, true)
+			rendered := RenderDetails(state, tt.snap, tt.audit, tt.width, tt.height, true, nil, nil)
 			GoldenTest(t, tt.golden, rendered)
 		})
 	}
