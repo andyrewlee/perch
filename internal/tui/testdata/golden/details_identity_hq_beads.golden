@@ -11,8 +11,8 @@
 │                                              │
 │ Beads Routes                                 │
 │ Prefix routing (routes.jsonl)                │
-│ hq- → .                                      │
-│ pe- → perch                                  │
+│ hq- → /Users/andrewlee/gt                    │
+│ pe- → /Users/andrewlee/gt/perch              │
 │                                              │
 │ Recent Commits                               │
 │ abc123 Add initial implementation            │
