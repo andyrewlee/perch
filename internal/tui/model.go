@@ -2488,11 +2488,12 @@ func (m Model) handleInfrastructureStart() (tea.Model, tea.Cmd) {
 	var action ActionType
 	var target string
 
-	switch subsystem.Subsystem {
-	case "deacon":
+	// Subsystem IDs may have rig suffix (e.g., "witness_perch", "refinery_perch")
+	switch {
+	case subsystem.Subsystem == "deacon":
 		action = ActionStartDeacon
 		target = "deacon"
-	case "witness":
+	case strings.HasPrefix(subsystem.Subsystem, "witness_"):
 		// Extract rig name from subsystem ID (e.g., "witness_perch")
 		if subsystem.Rig != "" {
 			action = ActionStartWitness
@@ -2501,7 +2502,7 @@ func (m Model) handleInfrastructureStart() (tea.Model, tea.Cmd) {
 			m.setStatus("Cannot start witness: no rig specified", true)
 			return m, statusExpireCmd(3 * time.Second)
 		}
-	case "refinery":
+	case strings.HasPrefix(subsystem.Subsystem, "refinery_"):
 		if subsystem.Rig != "" {
 			action = ActionStartRefinery
 			target = subsystem.Rig
@@ -2529,11 +2530,12 @@ func (m Model) handleInfrastructureStop() (tea.Model, tea.Cmd) {
 	var action ActionType
 	var target string
 
-	switch subsystem.Subsystem {
-	case "deacon":
+	// Subsystem IDs may have rig suffix (e.g., "witness_perch", "refinery_perch")
+	switch {
+	case subsystem.Subsystem == "deacon":
 		action = ActionStopDeacon
 		target = "deacon"
-	case "witness":
+	case strings.HasPrefix(subsystem.Subsystem, "witness_"):
 		if subsystem.Rig != "" {
 			action = ActionStopWitness
 			target = subsystem.Rig
@@ -2541,7 +2543,7 @@ func (m Model) handleInfrastructureStop() (tea.Model, tea.Cmd) {
 			m.setStatus("Cannot stop witness: no rig specified", true)
 			return m, statusExpireCmd(3 * time.Second)
 		}
-	case "refinery":
+	case strings.HasPrefix(subsystem.Subsystem, "refinery_"):
 		if subsystem.Rig != "" {
 			action = ActionStopRefinery
 			target = subsystem.Rig
@@ -2556,7 +2558,7 @@ func (m Model) handleInfrastructureStop() (tea.Model, tea.Cmd) {
 
 	m.confirmDialog = &ConfirmDialog{
 		Title:   "Confirm Stop",
-		Message: "Stop " + subsystem.Name + "? (y/n)",
+		Message: "Stop " + subsystem.Name + "?",
 		Action:  action,
 		Target:  target,
 	}
@@ -2574,11 +2576,12 @@ func (m Model) handleInfrastructureRestart() (tea.Model, tea.Cmd) {
 	var action ActionType
 	var target string
 
-	switch subsystem.Subsystem {
-	case "deacon":
+	// Subsystem IDs may have rig suffix (e.g., "witness_perch", "refinery_perch")
+	switch {
+	case subsystem.Subsystem == "deacon":
 		action = ActionRestartDeacon
 		target = "deacon"
-	case "witness":
+	case strings.HasPrefix(subsystem.Subsystem, "witness_"):
 		if subsystem.Rig != "" {
 			action = ActionRestartWitness
 			target = subsystem.Rig
@@ -2586,7 +2589,7 @@ func (m Model) handleInfrastructureRestart() (tea.Model, tea.Cmd) {
 			m.setStatus("Cannot restart witness: no rig specified", true)
 			return m, statusExpireCmd(3 * time.Second)
 		}
-	case "refinery":
+	case strings.HasPrefix(subsystem.Subsystem, "refinery_"):
 		if subsystem.Rig != "" {
 			action = ActionRestartRefineryAlt
 			target = subsystem.Rig
@@ -2601,7 +2604,7 @@ func (m Model) handleInfrastructureRestart() (tea.Model, tea.Cmd) {
 
 	m.confirmDialog = &ConfirmDialog{
 		Title:   "Confirm Restart",
-		Message: "Restart " + subsystem.Name + "? (y/n)",
+		Message: "Restart " + subsystem.Name + "?",
 		Action:  action,
 		Target:  target,
 	}
