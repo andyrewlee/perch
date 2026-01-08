@@ -308,6 +308,8 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.DeleteRig(ctx, target)
 		case ActionOpenLogs:
 			err = m.actionRunner.OpenLogs(ctx, target)
+		case ActionViewMRLogs:
+			err = m.actionRunner.ViewMRLogs(ctx, target)
 		case ActionNudgeRefinery:
 			err = m.actionRunner.NudgeRefinery(ctx, target)
 		case ActionRestartRefinery, ActionRestartRefineryAlt:
@@ -780,6 +782,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, statusExpireCmd(2 * time.Second)
 
 	case "o":
+		// Context-dependent: Open refinery logs (Merge Queue section) or agent logs (Agents section)
+		if m.sidebar.Section == SectionMergeQueue {
+			// Open logs for the refinery processing MRs
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+				m.setStatus("No merge request selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			mr := m.sidebar.MRs[m.sidebar.Selection]
+			m.setStatus("Opening refinery logs for "+mr.rig+"...", false)
+			return m, m.actionCmd(ActionViewMRLogs, mr.rig)
+		}
 		// Open logs for selected agent
 		if m.selectedAgent == "" {
 			m.setStatus("No agent selected. Use j/k to select an agent.", true)
@@ -787,6 +800,38 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.setStatus("Opening logs for "+m.selectedAgent+"...", false)
 		return m, m.actionCmd(ActionOpenLogs, m.selectedAgent)
+
+	case "v":
+		// View MR blockers/conflicts (Merge Queue section only)
+		if m.sidebar.Section != SectionMergeQueue {
+			m.setStatus("Switch to Merge Queue section (press 3) to view blockers", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
+			m.setStatus("No merge request selected", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		mr := m.sidebar.MRs[m.sidebar.Selection]
+		if !mr.mr.HasConflicts && !mr.mr.NeedsRebase {
+			m.setStatus("MR has no blockers - status is clean", false)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		// Show blocker details in status
+		blockerInfo := "Blockers for " + mr.mr.ID + ": "
+		if mr.mr.HasConflicts {
+			blockerInfo += "! conflicts"
+			if mr.mr.ConflictInfo != "" {
+				blockerInfo += " (" + mr.mr.ConflictInfo + ")"
+			}
+		}
+		if mr.mr.NeedsRebase {
+			if mr.mr.HasConflicts {
+				blockerInfo += ", "
+			}
+			blockerInfo += "~ rebase needed"
+		}
+		m.setStatus(blockerInfo, false)
+		return m, statusExpireCmd(10 * time.Second)
 
 	case "a":
 		// Open add rig form
@@ -2669,6 +2714,8 @@ func actionName(action ActionType) string {
 		return "Delete"
 	case ActionOpenLogs:
 		return "Open logs"
+	case ActionViewMRLogs:
+		return "View MR logs"
 	case ActionAddRig:
 		return "Add rig"
 	case ActionNudgePolecat:

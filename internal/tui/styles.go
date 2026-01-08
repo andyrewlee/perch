@@ -241,3 +241,27 @@ var (
 				Foreground(lipgloss.Color("#FF6666")).
 				Bold(true)
 )
+
+// MR action panel styles
+var (
+	mrClaimedStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#00BFFF")).
+			Bold(true)
+
+	mrTestsRunningStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FFCC00")).
+			Bold(true)
+
+	mrConflictStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#FF6666")).
+			Bold(true)
+
+	mrActionPanelStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(muted).
+			Padding(0, 1)
+
+	mrActionHintStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#888888")).
+				Italic(true)
+)

@@ -2484,15 +2484,50 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	lines = append(lines, fmt.Sprintf("ID:       %s", mr.ID))
 	lines = append(lines, fmt.Sprintf("Rig:      %s", rig))
 	lines = append(lines, fmt.Sprintf("Title:    %s", mr.Title))
-	lines = append(lines, fmt.Sprintf("Status:   %s", mr.Status))
-	lines = append(lines, fmt.Sprintf("Worker:   %s", mr.Worker))
+
+	// Per-MR status section with badges
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Status"))
+
+	// Status badge based on MR state
+	statusBadge := "pending"
+	switch mr.Status {
+	case "processing":
+		statusBadge = mrTestsRunningStyle.Render("[processing]")
+	case "claimed":
+		statusBadge = mrClaimedStyle.Render("[claimed]")
+	case "failed":
+		statusBadge = mrConflictStyle.Render("[failed]")
+	case "ready":
+		statusBadge = queueReadyStyle.Render("[ready]")
+	default:
+		statusBadge = mutedStyle.Render("[" + mr.Status + "]")
+	}
+	lines = append(lines, fmt.Sprintf("State:    %s", statusBadge))
+
+	// Worker assignment with claimed status
+	if mr.Worker != "" {
+		workerInfo := mr.Worker
+		if mr.Status == "claimed" {
+			workerInfo = mrClaimedStyle.Render(mr.Worker + " (assigned)")
+		} else if mr.Status == "processing" {
+			workerInfo = mrTestsRunningStyle.Render(mr.Worker + " (running tests)")
+		}
+		lines = append(lines, fmt.Sprintf("Worker:   %s", workerInfo))
+	}
+
 	lines = append(lines, fmt.Sprintf("Branch:   %s", mr.Branch))
 	lines = append(lines, fmt.Sprintf("Priority: P%d", mr.Priority))
+
+	// Last checked timestamp
+	if mr.LastChecked != "" {
+		lines = append(lines, fmt.Sprintf("Checked:  %s", mutedStyle.Render(mr.LastChecked)))
+	}
 
 	// Conflict/Rebase status section
 	if mr.HasConflicts || mr.NeedsRebase {
 		lines = append(lines, "")
-		lines = append(lines, headerStyle.Render("Issues"))
+		lines = append(lines, headerStyle.Render("Blockers"))
 
 		if mr.HasConflicts {
 			lines = append(lines, conflictStyle.Render("! Merge conflicts detected"))
@@ -2504,33 +2539,43 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 		if mr.NeedsRebase {
 			lines = append(lines, rebaseStyle.Render("~ Branch needs rebase"))
 		}
+	}
 
-		// Guidance section
+	// Actions panel - available controls
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Actions"))
+
+	// Show available actions based on MR state
+	actions := []string{}
+	if mr.HasConflicts || mr.NeedsRebase {
+		actions = append(actions, "n: nudge polecat")
+	}
+	actions = append(actions, "o: view refinery logs")
+	if mr.HasConflicts || mr.NeedsRebase {
+		actions = append(actions, "v: view blockers")
+	}
+
+	for _, action := range actions {
+		lines = append(lines, mrActionHintStyle.Render("  "+action))
+	}
+
+	// Resolution guidance (only if conflicts/rebase needed)
+	if mr.HasConflicts || mr.NeedsRebase {
 		lines = append(lines, "")
-		lines = append(lines, headerStyle.Render("Resolution"))
+		lines = append(lines, headerStyle.Render("Resolution Steps"))
 		if mr.HasConflicts {
-			lines = append(lines, "1. Fetch latest main: git fetch origin main")
-			lines = append(lines, fmt.Sprintf("2. Checkout branch:   git checkout %s", mr.Branch))
-			lines = append(lines, "3. Rebase on main:    git rebase origin/main")
-			lines = append(lines, "4. Fix conflicts in each file")
-			lines = append(lines, "5. Stage fixes:       git add <files>")
-			lines = append(lines, "6. Continue rebase:   git rebase --continue")
-			lines = append(lines, "7. Force push:        git push --force-with-lease")
+			lines = append(lines, mutedStyle.Render("  1. git fetch origin main"))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  2. git checkout %s", mr.Branch)))
+			lines = append(lines, mutedStyle.Render("  3. git rebase origin/main"))
+			lines = append(lines, mutedStyle.Render("  4. Fix conflicts in each file"))
+			lines = append(lines, mutedStyle.Render("  5. git add <files>"))
+			lines = append(lines, mutedStyle.Render("  6. git rebase --continue"))
+			lines = append(lines, mutedStyle.Render("  7. git push --force-with-lease"))
 		} else if mr.NeedsRebase {
-			lines = append(lines, "1. Fetch latest main: git fetch origin main")
-			lines = append(lines, fmt.Sprintf("2. Checkout branch:   git checkout %s", mr.Branch))
-			lines = append(lines, "3. Rebase on main:    git rebase origin/main")
-			lines = append(lines, "4. Force push:        git push --force-with-lease")
-		}
-
-		// Action hint
-		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("Press 'n' to nudge polecat to resolve"))
-	} else {
-		// Show last checked if available
-		if mr.LastChecked != "" {
-			lines = append(lines, "")
-			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Checked: %s", mr.LastChecked)))
+			lines = append(lines, mutedStyle.Render("  1. git fetch origin main"))
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  2. git checkout %s", mr.Branch)))
+			lines = append(lines, mutedStyle.Render("  3. git rebase origin/main"))
+			lines = append(lines, mutedStyle.Render("  4. git push --force-with-lease"))
 		}
 	}
 
