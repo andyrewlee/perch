@@ -524,6 +524,18 @@ type DependencyDialog struct {
 	Status        string                   // Status message
 }
 
+// BeadsFilterDialog represents a dialog for filtering beads.
+type BeadsFilterDialog struct {
+	Step            int      // 0=status, 1=type, 2=priority, 3=assignee, 4=labels
+	StatusFilter    string   // Current status filter
+	TypeFilter      string   // Current type filter
+	PriorityFilter  int      // -1 = all, 0-4 = P0-P4
+	AssigneeFilter  string   // Current assignee filter
+	LabelsFilter    []string // Current labels filter
+	AvailableLabels []string // All available labels from snapshot
+	Selection       int      // Selected item in current step
+}
+
 // PresetNudge represents a preset nudge message option.
 type PresetNudge struct {
 	Label   string // Short display label
