@@ -62,6 +62,7 @@ type Model struct {
 	inputDialog     *InputDialog
 	presetNudgeMenu *PresetNudgeMenu
 	depDialog       *DependencyDialog // Dependency management dialog
+	beadsFilterForm *BeadsFilterDialog // Beads filter dialog (ace)
 
 	// Attach town dialog
 	attachDialog *AttachDialog
@@ -543,6 +544,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleDependencyDialogKey(msg)
 	}
 
+	// Handle beads filter dialog
+	if m.beadsFilterForm != nil {
+		return m.handleBeadsFilterFormKey(msg)
+	}
+
 	// Handle preset nudge menu
 	if m.presetNudgeMenu != nil {
 		return m.handlePresetNudgeMenuKey(msg)
@@ -694,6 +700,14 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Target:  m.selectedRig,
 		}
 		return m, nil
+
+	case "f":
+		// Open beads filter dialog (only when Beads section is active)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			return m, m.openBeadsFilterDialog()
+		}
+		m.setStatus("Press 1 to switch to Beads section first", true)
+		return m, statusExpireCmd(2 * time.Second)
 
 	case "o":
 		// Open logs for selected agent
@@ -1812,6 +1826,196 @@ func (m Model) performDependencySearch() tea.Cmd {
 	}
 }
 
+// handleBeadsFilterFormKey handles key presses when the beads filter dialog is shown.
+func (m Model) handleBeadsFilterFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	dialog := m.beadsFilterForm
+
+	// Options for each step
+	statusOptions := []string{"all", "open", "in_progress", "closed"}
+	typeOptions := []string{"all", "bug", "feature", "task", "epic"}
+	priorityOptions := []string{"all", "P0", "P1", "P2", "P3", "P4"}
+
+	switch msg.String() {
+	case "esc", "q":
+		// Close dialog and apply filters
+		m.sidebar.BeadsStatusFilter = dialog.StatusFilter
+		m.sidebar.BeadsTypeFilter = dialog.TypeFilter
+		m.sidebar.BeadsPriorityFilter = dialog.PriorityFilter
+		m.sidebar.BeadsAssigneeFilter = dialog.AssigneeFilter
+		m.sidebar.BeadsLabelsFilter = dialog.LabelsFilter
+
+		// Re-filter beads with new filters
+		if m.snapshot != nil {
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+		}
+
+		m.beadsFilterForm = nil
+		filterActive := m.sidebar.HasActiveBeadsFilters()
+		if filterActive {
+			m.setStatus("Filters applied (press 'c' to clear)", false)
+		} else {
+			m.setStatus("Filters cleared", false)
+		}
+		return m, statusExpireCmd(2 * time.Second)
+
+	case "j", "down":
+		// Move selection down
+		dialog.Selection++
+		return m, nil
+
+	case "k", "up":
+		// Move selection up
+		if dialog.Selection > 0 {
+			dialog.Selection--
+		}
+		return m, nil
+
+	case "tab":
+		// Move to next step
+		dialog.Step = (dialog.Step + 1) % 5
+		dialog.Selection = 0
+		return m, nil
+
+	case "shift+tab":
+		// Move to previous step
+		dialog.Step = (dialog.Step + 4) % 5
+		dialog.Selection = 0
+		return m, nil
+
+	case "0", "1", "2", "3", "4":
+		// Quick priority selection (0-4)
+		if dialog.Step == 2 {
+			priority := -1
+			switch msg.String() {
+			case "0":
+				priority = 0
+			case "1":
+				priority = 1
+			case "2":
+				priority = 2
+			case "3":
+				priority = 3
+			case "4":
+				priority = 4
+			}
+			dialog.PriorityFilter = priority
+			dialog.Selection = 0
+		}
+		return m, nil
+
+	case " ":
+		// Toggle label selection (only in labels step)
+		if dialog.Step == 4 {
+			if dialog.Selection > 0 && dialog.Selection <= len(dialog.AvailableLabels) {
+				labelIdx := dialog.Selection - 1
+				label := dialog.AvailableLabels[labelIdx]
+
+				// Toggle label in filter
+				found := false
+				for i, l := range dialog.LabelsFilter {
+					if l == label {
+						// Remove label
+						dialog.LabelsFilter = append(dialog.LabelsFilter[:i], dialog.LabelsFilter[i+1:]...)
+						found = true
+						break
+					}
+				}
+				if !found {
+					// Add label
+					dialog.LabelsFilter = append(dialog.LabelsFilter, label)
+				}
+			}
+		}
+		return m, nil
+
+	case "enter":
+		// Apply filter at current step
+		switch dialog.Step {
+		case 0: // Status
+			if dialog.Selection >= 0 && dialog.Selection < len(statusOptions) {
+				val := statusOptions[dialog.Selection]
+				if val == "all" {
+					dialog.StatusFilter = ""
+				} else {
+					dialog.StatusFilter = val
+				}
+			}
+		case 1: // Type
+			if dialog.Selection >= 0 && dialog.Selection < len(typeOptions) {
+				val := typeOptions[dialog.Selection]
+				if val == "all" {
+					dialog.TypeFilter = ""
+				} else {
+					dialog.TypeFilter = val
+				}
+			}
+		case 2: // Priority
+			if dialog.Selection >= 0 && dialog.Selection < len(priorityOptions) {
+				val := priorityOptions[dialog.Selection]
+				if val == "all" {
+					dialog.PriorityFilter = -1
+				} else {
+					// Parse "P0" -> 0, "P1" -> 1, etc.
+					dialog.PriorityFilter = int(val[1] - '0')
+				}
+			}
+		case 3: // Assignee - show all assignees from snapshot
+			// Handled by direct entry or listing available assignees
+		case 4: // Labels
+			// Labels use space to toggle, enter here just confirms
+		}
+		dialog.Selection = 0
+		return m, nil
+	}
+
+	return m, nil
+}
+
+// openBeadsFilterDialog opens the beads filter dialog with current filter values.
+func (m Model) openBeadsFilterDialog() tea.Cmd {
+	return func() tea.Msg {
+		// Collect all unique labels from snapshot
+		var labels []string
+		labelSet := make(map[string]bool)
+		if m.snapshot != nil {
+			for _, issue := range m.snapshot.Issues {
+				for _, label := range issue.Labels {
+					if !labelSet[label] {
+						labelSet[label] = true
+						labels = append(labels, label)
+					}
+				}
+			}
+		}
+
+		// Collect all unique assignees
+		var assignees []string
+		assigneeSet := make(map[string]bool)
+		if m.snapshot != nil {
+			for _, issue := range m.snapshot.Issues {
+				if issue.Assignee != "" && !assigneeSet[issue.Assignee] {
+					assigneeSet[issue.Assignee] = true
+					assignees = append(assignees, issue.Assignee)
+				}
+			}
+		}
+
+		m.beadsFilterForm = &BeadsFilterDialog{
+			Step:            0,
+			StatusFilter:    m.sidebar.BeadsStatusFilter,
+			TypeFilter:      m.sidebar.BeadsTypeFilter,
+			PriorityFilter:  m.sidebar.BeadsPriorityFilter,
+			AssigneeFilter:  m.sidebar.BeadsAssigneeFilter,
+			LabelsFilter:    make([]string, len(m.sidebar.BeadsLabelsFilter)),
+			AvailableLabels: labels,
+			Selection:       0,
+		}
+		copy(m.beadsFilterForm.LabelsFilter, m.sidebar.BeadsLabelsFilter)
+
+		return nil
+	}
+}
+
 // openDependencyDialog opens the dependency management dialog for an issue.
 func (m Model) openDependencyDialog(issueID, issueTitle string) tea.Cmd {
 	return func() tea.Msg {
@@ -2402,6 +2606,10 @@ func (m Model) View() string {
 
 	if m.depDialog != nil {
 		return m.renderDependencyDialog()
+	}
+
+	if m.beadsFilterForm != nil {
+		return m.renderBeadsFilterDialog()
 	}
 
 	return m.renderLayout()
@@ -3176,6 +3384,261 @@ func (m Model) renderDependencyDialog() string {
 		b.WriteString("\n\n")
 		b.WriteString(hudErrorStyle.Render(dialog.Status))
 	}
+
+	content := b.String()
+
+	// Wrap in box
+	boxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("63")).
+		Padding(1, 2).
+		Width(dialogWidth).
+		MaxHeight(dialogHeight)
+
+	box := boxStyle.Render(content)
+
+	// Center on screen
+	boxHeight := lipgloss.Height(box)
+	boxWidth := lipgloss.Width(box)
+
+	paddingTop := (m.height - boxHeight) / 2
+	paddingLeft := (m.width - boxWidth) / 2
+
+	if paddingTop < 0 {
+		paddingTop = 0
+	}
+	if paddingLeft < 0 {
+		paddingLeft = 0
+	}
+
+	return strings.Repeat("\n", paddingTop) + strings.Repeat(" ", paddingLeft) + box
+}
+
+// renderBeadsFilterDialog renders the beads filter dialog.
+func (m Model) renderBeadsFilterDialog() string {
+	dialog := m.beadsFilterForm
+	dialogWidth := 60
+	dialogHeight := 22
+	if dialogWidth > m.width-4 {
+		dialogWidth = m.width - 4
+	}
+	if dialogHeight > m.height-4 {
+		dialogHeight = m.height - 4
+	}
+
+	var b strings.Builder
+
+	// Title
+	title := formTitleStyle.Render("Filter Beads")
+	b.WriteString(title)
+	b.WriteString("\n\n")
+
+	// Step indicator
+	steps := []string{"Status", "Type", "Priority", "Assignee", "Labels"}
+	for i, step := range steps {
+		prefix := " "
+		if i == dialog.Step {
+			prefix = ">"
+		}
+		stepNum := i + 1
+		b.WriteString(fmt.Sprintf("%s [%d] %s", prefix, stepNum, step))
+		if i < len(steps)-1 {
+			b.WriteString("  ")
+		}
+	}
+	b.WriteString("\n\n")
+
+	// Current step content
+	headerStyle := lipgloss.NewStyle().Bold(true).Foreground(highlight)
+	mutedStyle := lipgloss.NewStyle().Faint(true).Foreground(lipgloss.Color("242"))
+	selectedStyle := lipgloss.NewStyle().Background(highlight).Foreground(lipgloss.Color("0")).Bold(true)
+
+	switch dialog.Step {
+	case 0: // Status
+		b.WriteString(headerStyle.Render("Filter by Status:\n"))
+		b.WriteString("\n")
+		statusOptions := []string{"all", "open", "in_progress", "closed"}
+		statusLabels := []string{"All", "Open", "In Progress", "Closed"}
+		for i, opt := range statusOptions {
+			prefix := " "
+			if i == dialog.Selection {
+				prefix = ">"
+			}
+			label := statusLabels[i]
+			current := dialog.StatusFilter
+			marker := ""
+			if (opt == "all" && current == "") || opt == current {
+				marker = " [✓]"
+			}
+			line := fmt.Sprintf("%s [%d] %s%s", prefix, i, label, marker)
+			if i == dialog.Selection {
+				line = selectedStyle.Render(">" + line[1:] + " ")
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+
+	case 1: // Type
+		b.WriteString(headerStyle.Render("Filter by Type:\n"))
+		b.WriteString("\n")
+		typeOptions := []string{"all", "bug", "feature", "task", "epic"}
+		typeLabels := []string{"All", "Bug", "Feature", "Task", "Epic"}
+		for i, opt := range typeOptions {
+			prefix := " "
+			if i == dialog.Selection {
+				prefix = ">"
+			}
+			label := typeLabels[i]
+			current := dialog.TypeFilter
+			marker := ""
+			if (opt == "all" && current == "") || opt == current {
+				marker = " [✓]"
+			}
+			line := fmt.Sprintf("%s [%d] %s%s", prefix, i, label, marker)
+			if i == dialog.Selection {
+				line = selectedStyle.Render(">" + line[1:] + " ")
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+
+	case 2: // Priority
+		b.WriteString(headerStyle.Render("Filter by Priority:\n"))
+		b.WriteString("\n")
+		priorityOptions := []string{"all", "P0", "P1", "P2", "P3", "P4"}
+		priorityLabels := []string{"All", "P0 - Critical", "P1 - High", "P2 - Medium", "P3 - Low", "P4 - Backlog"}
+		for i, opt := range priorityOptions {
+			prefix := " "
+			if i == dialog.Selection {
+				prefix = ">"
+			}
+			label := priorityLabels[i]
+			marker := ""
+			if opt == "all" && dialog.PriorityFilter == -1 {
+				marker = " [✓]"
+			} else if opt != "all" {
+				prio := int(opt[1] - '0')
+				if dialog.PriorityFilter == prio {
+					marker = " [✓]"
+				}
+			}
+			line := fmt.Sprintf("%s [%d] %s%s", prefix, i, label, marker)
+			if i == dialog.Selection {
+				line = selectedStyle.Render(">" + line[1:] + " ")
+			}
+			b.WriteString(line)
+			b.WriteString("\n")
+		}
+		b.WriteString(mutedStyle.Render("\nTip: Press 0-4 to quick-select priority"))
+
+	case 3: // Assignee
+		b.WriteString(headerStyle.Render("Filter by Assignee:\n"))
+		b.WriteString("\n")
+
+		// Show current filter
+		currentAssignee := dialog.AssigneeFilter
+		if currentAssignee == "" {
+			currentAssignee = "All"
+		}
+		b.WriteString(fmt.Sprintf("Current: %s\n", headerStyle.Render(currentAssignee)))
+		b.WriteString("\n")
+
+		// Show available assignees (collect from snapshot)
+		assigneeSet := make(map[string]bool)
+		if m.snapshot != nil {
+			for _, issue := range m.snapshot.Issues {
+				if issue.Assignee != "" {
+					assigneeSet[issue.Assignee] = true
+				}
+			}
+		}
+		var assignees []string
+		for a := range assigneeSet {
+			assignees = append(assignees, a)
+		}
+
+		if len(assignees) == 0 {
+			b.WriteString(mutedStyle.Render("  No assignees found"))
+		} else {
+			// Show "All" option first
+			prefix := " "
+			marker := ""
+			if dialog.AssigneeFilter == "" {
+				marker = " [✓]"
+			}
+			b.WriteString(fmt.Sprintf("%s [All]%s\n", prefix, marker))
+
+			// Show up to 10 assignees
+			maxItems := 10
+			for i, assignee := range assignees {
+				if i >= maxItems {
+					remaining := len(assignees) - maxItems
+					b.WriteString(mutedStyle.Render(fmt.Sprintf("  ... and %d more", remaining)))
+					break
+				}
+				prefix = " "
+				if i+1 == dialog.Selection {
+					prefix = ">"
+				}
+				marker = ""
+				if dialog.AssigneeFilter == assignee {
+					marker = " [✓]"
+				}
+				b.WriteString(fmt.Sprintf("%s %s%s\n", prefix, assignee, marker))
+			}
+		}
+
+	case 4: // Labels
+		b.WriteString(headerStyle.Render("Filter by Labels:\n"))
+		b.WriteString("\n")
+
+		// Show current selection
+		if len(dialog.LabelsFilter) > 0 {
+			b.WriteString("Selected: ")
+			for i, label := range dialog.LabelsFilter {
+				if i > 0 {
+					b.WriteString(", ")
+				}
+				b.WriteString(fmt.Sprintf("[%s]", label))
+			}
+			b.WriteString("\n\n")
+		} else {
+			b.WriteString(mutedStyle.Render("No labels selected\n\n"))
+		}
+
+		// Show available labels
+		if len(dialog.AvailableLabels) == 0 {
+			b.WriteString(mutedStyle.Render("  No labels found"))
+		} else {
+			maxItems := 10
+			for i, label := range dialog.AvailableLabels {
+				if i >= maxItems {
+					remaining := len(dialog.AvailableLabels) - maxItems
+					b.WriteString(mutedStyle.Render(fmt.Sprintf("\n  ... and %d more", remaining)))
+					break
+				}
+				prefix := " "
+				marker := " "
+				selected := false
+				for _, l := range dialog.LabelsFilter {
+					if l == label {
+						selected = true
+						break
+					}
+				}
+				if selected {
+					marker = "[✓]"
+				}
+				if i+1 == dialog.Selection {
+					prefix = ">"
+				}
+				b.WriteString(fmt.Sprintf("%s %s %s\n", prefix, marker, label))
+			}
+		}
+	}
+
+	b.WriteString("\n")
+	b.WriteString(mutedStyle.Render("j/k: select • enter: apply • tab: next step • space: toggle label • esc/q: apply & close"))
 
 	content := b.String()
 

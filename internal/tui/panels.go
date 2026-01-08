@@ -452,10 +452,12 @@ type SidebarState struct {
 	BeadsScope BeadsScope
 
 	// Beads filters
-	BeadsStatusFilter   string // Empty = show all, "open", "in_progress", "hooked", "closed"
-	BeadsTypeFilter     string // Empty = show all, "task", "bug", "feature", "epic"
-	BeadsPriorityFilter int    // -1 = all, 0-4 = specific priority
-	BeadsAssigneeFilter string // Empty = show all, specific assignee otherwise
+	BeadsStatusFilter    string   // Empty = show all, or specific status (open, in_progress, closed, hooked)
+	BeadsTypeFilter      string   // Empty = show all, or specific type (task, bug, feature, epic)
+	BeadsPriorityFilter  int      // -1 = show all, 0-4 for specific priority
+	BeadsAssigneeFilter  string   // Empty = show all, or specific assignee
+	BeadsLabelsFilter    []string // Empty = show all, or specific labels (OR'd)
+	BeadsFilterActive    bool     // True if any non-default filter is set
 
 	// Lifecycle filters
 	LifecycleFilter      data.LifecycleEventType // Empty = show all
@@ -643,12 +645,66 @@ func (s *SidebarState) SetBeadsAssigneeFilter() {
 	s.Selection = 0
 }
 
+// beadsFilterMatches checks if an issue matches all active beads filters.
+// Returns true if the issue should be shown.
+func (s *SidebarState) beadsFilterMatches(issue data.Issue) bool {
+	// Status filter (empty = default filter excluding closed)
+	if s.BeadsStatusFilter != "" {
+		if issue.Status != s.BeadsStatusFilter {
+			return false
+		}
+	} else {
+		// Default behavior: exclude closed issues unless explicitly filtered
+		if issue.Status == "closed" {
+			return false
+		}
+	}
+
+	// Type filter (empty = show all)
+	if s.BeadsTypeFilter != "" && issue.IssueType != s.BeadsTypeFilter {
+		return false
+	}
+
+	// Priority filter (-1 = show all)
+	if s.BeadsPriorityFilter >= 0 && issue.Priority != s.BeadsPriorityFilter {
+		return false
+	}
+
+	// Assignee filter (empty = show all)
+	if s.BeadsAssigneeFilter != "" && issue.Assignee != s.BeadsAssigneeFilter {
+		return false
+	}
+
+	// Labels filter (empty = show all, any match = show)
+	if len(s.BeadsLabelsFilter) > 0 {
+		matches := false
+		for _, label := range s.BeadsLabelsFilter {
+			for _, issueLabel := range issue.Labels {
+				if issueLabel == label {
+					matches = true
+					break
+				}
+			}
+			if matches {
+				break
+			}
+		}
+		if !matches {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ClearBeadsFilters clears all beads filters.
 func (s *SidebarState) ClearBeadsFilters() {
 	s.BeadsStatusFilter = ""
 	s.BeadsTypeFilter = ""
 	s.BeadsPriorityFilter = -1
 	s.BeadsAssigneeFilter = ""
+	s.BeadsLabelsFilter = nil
+	s.BeadsFilterActive = false
 	s.Selection = 0
 }
 
@@ -671,6 +727,11 @@ func (s *SidebarState) BeadsFilterSummary() string {
 		return ""
 	}
 	return strings.Join(parts, " ")
+}
+
+// HasActiveBeadsFilters returns true if any beads filter is active.
+func (s *SidebarState) HasActiveBeadsFilters() bool {
+	return s.BeadsFilterActive
 }
 
 // UpdateFromSnapshot refreshes the sidebar data from a snapshot
@@ -868,7 +929,7 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	}
 
 	// Update beads with loading/error tracking
-	// Filter by scope AND apply filters (status, type, priority, assignee)
+	// Filter by scope, status, type, priority, assignee, labels
 	if snap.Issues != nil {
 		s.Beads = nil
 		s.BeadsTotalCount = 0
@@ -881,34 +942,13 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 				continue
 			}
 
+			// Count all issues in scope (before filters)
 			s.BeadsTotalCount++
 
-			// Apply status filter
-			if s.BeadsStatusFilter != "" && issue.Status != s.BeadsStatusFilter {
-				continue
+			// Apply filters using the helper method
+			if s.beadsFilterMatches(issue) {
+				s.Beads = append(s.Beads, beadItem{issue})
 			}
-
-			// Apply type filter
-			if s.BeadsTypeFilter != "" && issue.IssueType != s.BeadsTypeFilter {
-				continue
-			}
-
-			// Apply priority filter
-			if s.BeadsPriorityFilter >= 0 && issue.Priority != s.BeadsPriorityFilter {
-				continue
-			}
-
-			// Apply assignee filter
-			if s.BeadsAssigneeFilter != "" && issue.Assignee != s.BeadsAssigneeFilter {
-				continue
-			}
-
-			// Exclude closed issues only when not explicitly filtering for them
-			if issue.Status == "closed" && s.BeadsStatusFilter != "closed" {
-				continue
-			}
-
-			s.Beads = append(s.Beads, beadItem{issue})
 		}
 		s.BeadsLastRefresh = snap.LoadedAt
 		s.BeadsLoadError = nil
@@ -1232,6 +1272,11 @@ func renderSectionHeader(name string, section SidebarSection, active bool, state
 		if unread > 0 {
 			header += " " + mailUnreadStyle.Render(fmt.Sprintf("(%d)", unread))
 		}
+	}
+
+	// Add filter indicator for Beads section
+	if section == SectionBeads && state != nil && state.HasActiveBeadsFilters() {
+		header += " " + lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Render("[F]")
 	}
 
 	// Add section description when active
