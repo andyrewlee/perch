@@ -809,9 +809,9 @@ func TestLoadRoutes(t *testing.T) {
 
 	// Write test routes.jsonl
 	routesPath := filepath.Join(beadsDir, "routes.jsonl")
-	testContent := `{"prefix":"hq-","path":"."}
-{"prefix":"pe-","path":"perch"}
-{"prefix":"gt-","path":"roles"}
+	testContent := `{"prefix":"hq-","location":"/Users/andrewlee/gt","rig":""}
+{"prefix":"pe-","location":"/Users/andrewlee/gt/perch","rig":"perch"}
+{"prefix":"gt-","location":"/Users/andrewlee/gt/roles","rig":"roles"}
 `
 	if err := os.WriteFile(routesPath, []byte(testContent), 0644); err != nil {
 		t.Fatalf("failed to write routes.jsonl: %v", err)
@@ -819,34 +819,36 @@ func TestLoadRoutes(t *testing.T) {
 
 	// Create loader and load routes
 	loader := NewLoader(tmpDir)
-	ctx := context.Background()
 
-	routes, err := loader.LoadRoutes(ctx)
+	routes, err := loader.LoadRoutes()
 	if err != nil {
 		t.Fatalf("LoadRoutes: %v", err)
 	}
 
 	// Verify routes
-	if len(routes) != 3 {
-		t.Errorf("expected 3 routes, got %d", len(routes))
+	if len(routes.Entries) != 3 {
+		t.Errorf("expected 3 routes, got %d", len(routes.Entries))
 	}
 
 	// Check first route
-	if routes[0].Prefix != "hq-" || routes[0].Path != "." {
-		t.Errorf("route[0] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
-			routes[0].Prefix, routes[0].Path, "hq-", ".")
+	r1 := routes.Entries["hq-"]
+	if r1.Prefix != "hq-" || r1.Location != "/Users/andrewlee/gt" {
+		t.Errorf("route[hq-] = {prefix:%q, location:%q}, want {prefix:%q, location:%q}",
+			r1.Prefix, r1.Location, "hq-", "/Users/andrewlee/gt")
 	}
 
 	// Check second route
-	if routes[1].Prefix != "pe-" || routes[1].Path != "perch" {
-		t.Errorf("route[1] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
-			routes[1].Prefix, routes[1].Path, "pe-", "perch")
+	r2 := routes.Entries["pe-"]
+	if r2.Prefix != "pe-" || r2.Location != "/Users/andrewlee/gt/perch" {
+		t.Errorf("route[pe-] = {prefix:%q, location:%q}, want {prefix:%q, location:%q}",
+			r2.Prefix, r2.Location, "pe-", "/Users/andrewlee/gt/perch")
 	}
 
 	// Check third route
-	if routes[2].Prefix != "gt-" || routes[2].Path != "roles" {
-		t.Errorf("route[2] = {prefix:%q, path:%q}, want {prefix:%q, path:%q}",
-			routes[2].Prefix, routes[2].Path, "gt-", "roles")
+	r3 := routes.Entries["gt-"]
+	if r3.Prefix != "gt-" || r3.Location != "/Users/andrewlee/gt/roles" {
+		t.Errorf("route[gt-] = {prefix:%q, location:%q}, want {prefix:%q, location:%q}",
+			r3.Prefix, r3.Location, "gt-", "/Users/andrewlee/gt/roles")
 	}
 }
 
@@ -870,15 +872,14 @@ func TestLoadRoutes_EmptyFile(t *testing.T) {
 	}
 
 	loader := NewLoader(tmpDir)
-	ctx := context.Background()
 
-	routes, err := loader.LoadRoutes(ctx)
+	routes, err := loader.LoadRoutes()
 	if err != nil {
 		t.Fatalf("LoadRoutes with empty file: %v", err)
 	}
 
-	if len(routes) != 0 {
-		t.Errorf("expected 0 routes from empty file, got %d", len(routes))
+	if len(routes.Entries) != 0 {
+		t.Errorf("expected 0 routes from empty file, got %d", len(routes.Entries))
 	}
 }
 
@@ -897,15 +898,14 @@ func TestLoadRoutes_NoFile(t *testing.T) {
 	}
 
 	loader := NewLoader(tmpDir)
-	ctx := context.Background()
 
-	routes, err := loader.LoadRoutes(ctx)
+	routes, err := loader.LoadRoutes()
 	if err != nil {
 		t.Fatalf("LoadRoutes with no file: %v", err)
 	}
 
-	if len(routes) != 0 {
-		t.Errorf("expected 0 routes when file doesn't exist, got %d", len(routes))
+	if len(routes.Entries) != 0 {
+		t.Errorf("expected 0 routes when file doesn't exist, got %d", len(routes.Entries))
 	}
 }
 
@@ -926,27 +926,26 @@ func TestLoadRoutes_WithCommentsAndEmptyLines(t *testing.T) {
 	// Write routes.jsonl with comments and empty lines
 	routesPath := filepath.Join(beadsDir, "routes.jsonl")
 	testContent := `# This is a comment
-{"prefix":"hq-","path":"."}
+{"prefix":"hq-","location":"/Users/andrewlee/gt"}
 
-{"prefix":"pe-","path":"perch"}
+{"prefix":"pe-","location":"/Users/andrewlee/gt/perch"}
 # Another comment
-{"prefix":"gt-","path":"roles"}
+{"prefix":"gt-","location":"/Users/andrewlee/gt/roles"}
 `
 	if err := os.WriteFile(routesPath, []byte(testContent), 0644); err != nil {
 		t.Fatalf("failed to write routes.jsonl: %v", err)
 	}
 
 	loader := NewLoader(tmpDir)
-	ctx := context.Background()
 
-	routes, err := loader.LoadRoutes(ctx)
+	routes, err := loader.LoadRoutes()
 	if err != nil {
 		t.Fatalf("LoadRoutes: %v", err)
 	}
 
 	// Should skip comments and empty lines, still get 3 routes
-	if len(routes) != 3 {
-		t.Errorf("expected 3 routes (comments/empty lines skipped), got %d", len(routes))
+	if len(routes.Entries) != 3 {
+		t.Errorf("expected 3 routes (comments/empty lines skipped), got %d", len(routes.Entries))
 	}
 }
 

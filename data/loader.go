@@ -912,50 +912,6 @@ func (l *Loader) loadPluginInfo(pluginPath, name, scope string) Plugin {
 	return plugin
 }
 
-// LoadRoutes reads routes.jsonl and returns the prefix-to-path mapping.
-// Routes determine which rig's beads database handles a given issue ID prefix.
-func (l *Loader) LoadRoutes(_ context.Context) ([]Route, error) {
-	routesPath := filepath.Join(l.TownRoot, ".beads", "routes.jsonl")
-
-	file, err := os.Open(routesPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No routes file is not an error - return empty slice
-			return []Route{}, nil
-		}
-		return nil, fmt.Errorf("opening routes file: %w", err)
-	}
-	defer file.Close()
-
-	var routes []Route
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		var route Route
-		if err := json.Unmarshal([]byte(line), &route); err != nil {
-			// Skip invalid lines but continue parsing
-			continue
-		}
-
-		// Validate route has both prefix and path
-		if route.Prefix == "" || route.Path == "" {
-			continue
-		}
-
-		routes = append(routes, route)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("reading routes file: %w", err)
-	}
-
-	return routes, nil
-}
-
 // Snapshot represents a complete snapshot of town data at a point in time.
 type Snapshot struct {
 	Town             *TownStatus
