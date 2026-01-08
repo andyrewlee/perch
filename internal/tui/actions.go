@@ -45,6 +45,7 @@ const (
 	ActionPresetNudge    // Nudge with preset message
 	ActionCreateBead     // Create a new bead (issue)
 	ActionEditBead       // Edit an existing bead
+	ActionAddComment     // Add a comment to a bead (issue)
 
 	// Infrastructure agent controls (Deacon/Witness/Refinery)
 	ActionStartDeacon     // Start the Deacon (town-level watchdog)

@@ -58,6 +58,7 @@ type Model struct {
 	addRigForm      *AddRigForm
 	createWorkForm  *CreateWorkForm
 	beadsForm       *BeadsForm
+	commentForm     *CommentForm
 	inputDialog     *InputDialog
 	presetNudgeMenu *PresetNudgeMenu
 
@@ -566,6 +567,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleBeadsFormKey(msg)
 	}
 
+	// Handle comment form
+	if m.commentForm != nil {
+		return m.handleCommentFormKey(msg)
+	}
+
 	// Handle rig settings form
 	if m.rigSettingsForm != nil {
 		return m.handleRigSettingsFormKey(msg)
@@ -698,6 +704,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "c":
+		// Context-dependent: Add comment (Beads section) or stop polecat (Agents section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
+			// Add comment to selected bead
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Beads) {
+				m.setStatus("No bead selected", true)
+				return m, statusExpireCmd(2 * time.Second)
+			}
+			selectedBeadID := m.sidebar.Beads[m.sidebar.Selection].issue.ID
+			m.commentForm = NewCommentForm(selectedBeadID)
+			return m, nil
+		}
 		// Stop selected idle polecat (only when Agents section is active)
 		if m.sidebar.Section != SectionAgents {
 			m.setStatus("Switch to Agents section (press 4) to stop polecats", true)
@@ -1413,6 +1430,27 @@ func (m Model) handleBeadsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// handleCommentFormKey handles key presses when the comment form is shown.
+func (m Model) handleCommentFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd := m.commentForm.Update(msg)
+
+	if m.commentForm.IsCancelled() {
+		m.commentForm = nil
+		m.setStatus("Comment cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.commentForm.IsSubmitted() {
+		issueID := m.commentForm.IssueID()
+		content := m.commentForm.Content()
+		m.commentForm = nil
+		m.setStatus("Adding comment to '"+issueID+"'...", false)
+		return m, m.addCommentCmd(issueID, content)
+	}
+
+	return m, cmd
+}
+
 // openRigSettingsCmd loads settings and opens the settings form.
 func (m Model) openRigSettingsCmd(rigName string) tea.Cmd {
 	return func() tea.Msg {
@@ -1507,6 +1545,17 @@ func (m Model) updateBeadCmd(id, title, description, issueType string, priority 
 
 		err := m.actionRunner.UpdateBead(ctx, id, title, description, issueType, priority)
 		return actionCompleteMsg{action: ActionEditBead, target: id, err: err}
+	}
+}
+
+// addCommentCmd creates a command that adds a comment to a bead.
+func (m Model) addCommentCmd(issueID, content string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		err := m.actionRunner.AddComment(ctx, issueID, content)
+		return actionCompleteMsg{action: ActionAddComment, target: issueID, err: err}
 	}
 }
 
@@ -1972,6 +2021,8 @@ func actionName(action ActionType) string {
 		return "Create bead"
 	case ActionEditBead:
 		return "Update bead"
+	case ActionAddComment:
+		return "Add comment"
 	// Infrastructure agent controls
 	case ActionStartDeacon:
 		return "Start deacon"
@@ -2097,6 +2148,10 @@ func (m Model) View() string {
 
 	if m.beadsForm != nil {
 		return m.beadsForm.View(m.width, m.height)
+	}
+
+	if m.commentForm != nil {
+		return m.commentForm.View(m.width, m.height)
 	}
 
 	if m.rigSettingsForm != nil {
