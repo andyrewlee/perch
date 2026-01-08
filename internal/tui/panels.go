@@ -1426,17 +1426,33 @@ func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *Sideba
 	}
 
 	// Show error indicator if MQ failed to load (but still show last-known items)
-	// Distinguish between "services stopped" (intentional) vs "load error" (failure)
+	// Distinguish between three states:
+	// 1. Services stopped (no deacon, all services down) → "Services stopped / stale"
+	// 2. Services running but refinery stopped → "Refinery stopped"
+	// 3. Services running, refinery running, but load failed → "Load error"
 	if state.MQsLoadError != nil {
-		if servicesAppearStopped(snap) || !refineryRunning(snap) {
-			// Services intentionally stopped - show stale indicator, not error
+		if servicesAppearStopped(snap) {
+			// All services stopped - show stale indicator with hint to boot
 			stoppedLine := stoppedStyle.Render("  ◌ Services stopped / stale")
 			if !state.MQsLastRefresh.IsZero() {
 				stoppedLine += mutedStyle.Render(" (last: " + state.MQsLastRefresh.Format("15:04") + ")")
 			}
 			lines = append(lines, stoppedLine)
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+			}
+		} else if !refineryRunning(snap) {
+			// Services running but refinery is stopped
+			stoppedLine := stoppedStyle.Render("  ◌ Refinery stopped")
+			if !state.MQsLastRefresh.IsZero() {
+				stoppedLine += mutedStyle.Render(" (last: " + state.MQsLastRefresh.Format("15:04") + ")")
+			}
+			lines = append(lines, stoppedLine)
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Select rig, press 'b' to boot"))
+			}
 		} else {
-			// Real error - services should be running but load failed
+			// Real error - services and refinery running but load failed
 			errLine := statusErrorStyle.Render("  ! Load error")
 			if !state.MQsLastRefresh.IsZero() {
 				errLine += mutedStyle.Render(" (stale: " + state.MQsLastRefresh.Format("15:04") + ")")
@@ -1445,12 +1461,19 @@ func renderMergeQueueList(state *SidebarState, snap *data.Snapshot, opts *Sideba
 		}
 	}
 
-	// Check if services appear stopped (show stale marker on cached items)
-	// This handles the case where we have cached items but services are down
-	if state.MQsLoadError == nil && servicesAppearStopped(snap) && len(items) > 0 {
-		lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
-		if isActiveSection {
-			lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+	// Check if services appear stopped or refinery stopped (show stale marker on cached items)
+	// This handles the case where we have cached items but services/refinery are down
+	if state.MQsLoadError == nil && len(items) > 0 {
+		if servicesAppearStopped(snap) {
+			lines = append(lines, stoppedStyle.Render("  ◌ Services stopped / stale"))
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Run 'gt boot <rig>' to start"))
+			}
+		} else if !refineryRunning(snap) {
+			lines = append(lines, stoppedStyle.Render("  ◌ Refinery stopped"))
+			if isActiveSection {
+				lines = append(lines, mutedStyle.Render("  Select rig, press 'b' to boot"))
+			}
 		}
 	}
 
