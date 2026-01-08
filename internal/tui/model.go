@@ -2517,15 +2517,12 @@ func actionName(action ActionType) string {
 		return "Create bead"
 	case ActionEditBead:
 		return "Update bead"
-<<<<<<< HEAD
 	case ActionAddComment:
 		return "Add comment"
-=======
 	case ActionCloseBead:
 		return "Close bead"
 	case ActionReopenBead:
 		return "Reopen bead"
->>>>>>> 9932b57 (feat(tui): Add close and reopen actions for beads in Beads Explorer)
 	// Infrastructure agent controls
 	case ActionStartDeacon:
 		return "Start deacon"
