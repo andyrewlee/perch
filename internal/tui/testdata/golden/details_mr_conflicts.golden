@@ -1,20 +1,21 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Merge Request                                │
+│ Completed work waiting to be merged into     │
+│ main                                         │
 │                                              │
+│ ID:       mr-001                             │
+│ Rig:      perch                              │
+│ Title:    Add auth feature                   │
+│ Status:   pending                            │
+│ Worker:   able                               │
+│ Branch:   feat/auth                          │
+│ Priority: P1                                 │
 │                                              │
+│ Issues                                       │
+│ ! Merge conflicts detected                   │
+│   src/auth.go: merge conflict                │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Resolution                                   │
+│ 1. Fetch latest main: git fetch origin main  │
 ╰──────────────────────────────────────────────╯

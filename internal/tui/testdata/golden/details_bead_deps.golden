@@ -1,20 +1,20 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Bead (Rig)                                   │
 │                                              │
+│ ID:       pe-001                             │
+│ Title:    Implement TUI panels               │
+│ Type:     feature                            │
+│ Priority: P1                                 │
+│ Status:   ▶ in_progress                      │
 │                                              │
+│ Assignee: able                               │
+│ Created:  2026-01-06 11:01 by testuser       │
+│ Updated:  2026-01-08 09:01                   │
 │                                              │
+│ Dependencies                                 │
+│   Blocked by: 1 issues                       │
+│   Blocking:   2 issues                       │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Labels                                       │
 ╰──────────────────────────────────────────────╯

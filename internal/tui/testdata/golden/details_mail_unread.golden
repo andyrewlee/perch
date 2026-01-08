@@ -1,20 +1,20 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Mail                                         │
 │                                              │
+│ Status:  ● Unread                            │
+│ Type:    [MR] Merge Ready                    │
+│ ID:      mail-001                            │
+│ From:    mayor                               │
+│ To:      perch/witness                       │
+│ Date:    2026-01-08 10:31                    │
+│ Thread:  thread-001                          │
+│ Priority: high                               │
 │                                              │
+│ Subject                                      │
+│ Urgent: Fix production bug                   │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Body                                         │
+│ A critical bug has been reported in produc   │
+│ tion. Please investigate and fix ASAP.       │
 ╰──────────────────────────────────────────────╯

@@ -2021,12 +2021,15 @@ func RenderDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelin
 }
 
 func renderSelectedDetails(state *SidebarState, snap *data.Snapshot, audit *AuditTimelineState, width int, dependencies *data.IssueDependencies, comments *data.IssueComments) string {
-	if state == nil || snap == nil {
+	if state == nil {
 		return mutedStyle.Render("No data loaded")
 	}
 
 	switch state.Section {
 	case SectionIdentity:
+		if snap == nil {
+			return mutedStyle.Render("No data loaded")
+		}
 		return renderIdentityDetails(snap.Identity, snap.Mail, snap.Routes, width)
 	case SectionRigs:
 		if state.Selection >= 0 && state.Selection < len(state.Rigs) {

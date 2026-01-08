@@ -1,20 +1,20 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Agent                                        │
 │                                              │
+│ Name:    able                                │
+│ Address: perch/polecats/able                 │
+│ Role:    polecat                             │
+│          Autonomous worker (witness-managed) │
+│ Session: able-session-123                    │
+│ Status:  ● working                           │
+│          Actively executing assigned work    │
 │                                              │
+│ Hook                                         │
+│ Bead:    gt-001                              │
+│ Title:   Implement auth feature              │
+│ Status:  in_progress                         │
+│ Age:     2h                                  │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Activity Timeline                            │
 ╰──────────────────────────────────────────────╯

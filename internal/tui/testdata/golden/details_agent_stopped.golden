@@ -1,20 +1,21 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Agent                                        │
 │                                              │
+│ Name:    baker                               │
+│ Address: perch/polecats/baker                │
+│ Role:    polecat                             │
+│          Autonomous worker (witness-managed) │
+│ Session: baker-session-456                   │
+│ Status:  ◌ stopped                           │
+│          Session not running                 │
 │                                              │
+│ Hook                                         │
+│ (empty)                                      │
 │                                              │
+│ Activity Timeline                            │
+│   1h ■ Session killed                        │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Actions: n=nudge t=attach o=logs R=restart   │
+│ K=kill m=mail S=sling H=handoff              │
 ╰──────────────────────────────────────────────╯

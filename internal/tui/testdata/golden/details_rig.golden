@@ -1,20 +1,25 @@
 ╭──────────────────────────────────────────────╮
 │ Details                                      │
-│ No data loaded                               │
+│ Rig                                          │
+│ A project workspace with its own agents and  │
+│ merge queue                                  │
 │                                              │
+│ Name:       perch                            │
 │                                              │
+│ Workers                                      │
+│ Polecats:   3                                │
+│             Autonomous workers started by    │
+│ the witness                                  │
+│ Crews:      1                                │
+│             Human-managed workers (you run   │
+│ sessions)                                    │
 │                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
-│                                              │
+│ Infrastructure                               │
+│ Witness:    Yes                              │
+│             Manages worker lifecycle         │
+│ automatically                                │
+│ Refinery:   Yes                              │
+│             Merges completed work into main  │
+│ branch                                       │
+│ Merge Queue: 2 items                         │
 ╰──────────────────────────────────────────────╯
