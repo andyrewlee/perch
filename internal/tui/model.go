@@ -1175,6 +1175,20 @@ func (m Model) renderHealthDetails() string {
 
 	var b strings.Builder
 
+	// Show patrol formulas health first (critical for refinery/witness operations)
+	if m.snapshot != nil && m.snapshot.PatrolFormulasHealth != nil {
+		pf := m.snapshot.PatrolFormulasHealth
+		if pf.NeedsFix() {
+			b.WriteString("🚨 PATROL FORMULAS\n")
+			b.WriteString("──────────────────\n")
+			b.WriteString(fmt.Sprintf("Status: %s\n\n", pf.Status()))
+			for _, detail := range pf.Details() {
+				b.WriteString(fmt.Sprintf("    %s\n", detail))
+			}
+			b.WriteString(fmt.Sprintf("\n  → %s\n\n", pf.FixMessage()))
+		}
+	}
+
 	// Summary header
 	b.WriteString("Health Check Report\n")
 	b.WriteString("═══════════════════\n\n")
@@ -1216,7 +1230,7 @@ func (m Model) renderHealthDetails() string {
 	}
 
 	// If no issues
-	if !m.doctorReport.HasIssues() {
+	if !m.doctorReport.HasIssues() && (m.snapshot == nil || m.snapshot.PatrolFormulasHealth == nil || !m.snapshot.PatrolFormulasHealth.NeedsFix()) {
 		b.WriteString("✓ All health checks passed!\n")
 	}
 
@@ -2058,6 +2072,12 @@ func (m *Model) updateQueueHealth(snap *data.Snapshot) {
 		health := QueueHealth{
 			RigName: rigName,
 			State:   RefineryIdle,
+		}
+
+		// Add patrol formulas warning if missing
+		if snap.PatrolFormulasHealth != nil && snap.PatrolFormulasHealth.NeedsFix() {
+			health.PatrolFormulasWarning = fmt.Sprintf("Patrol formulas missing (%s)", snap.PatrolFormulasHealth.Status())
+			health.PatrolFormulasFix = snap.PatrolFormulasHealth.FixMessage()
 		}
 
 		// Determine refinery state from agents
