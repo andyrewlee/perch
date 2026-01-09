@@ -1,0 +1,10 @@
+{
+  "type": "rig",
+  "version": 1,
+  "name": "perch-rig",
+  "git_url": "https://github.com/andyrewlee/perch",
+  "default_branch": "main",
+  "beads": {
+    "prefix": "pe"
+  }
+}
