@@ -44,6 +44,7 @@ const (
 	ActionMailAgent
 	ActionTogglePlugin
 	ActionOpenSession    // Attach to agent's tmux session (advanced)
+	ActionStartSession   // Start a stopped agent's session
 	ActionRestartSession // Restart agent's session
 	ActionPresetNudge    // Nudge with preset message
 	ActionCreateBead     // Create a new bead (issue)
@@ -388,6 +389,12 @@ func (r *ActionRunner) AttachSession(ctx context.Context, agentAddress string) e
 // Runs: gt session restart <agent-address>
 func (r *ActionRunner) RestartSession(ctx context.Context, agentAddress string) error {
 	return r.runCommand(ctx, "gt", "session", "restart", agentAddress)
+}
+
+// StartSession starts a stopped agent's session.
+// Runs: gt session start <agent-address>
+func (r *ActionRunner) StartSession(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "session", "start", agentAddress)
 }
 
 // TogglePlugin enables or disables a plugin by creating/removing a .disabled marker file.

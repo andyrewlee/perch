@@ -339,6 +339,8 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 			err = m.actionRunner.TogglePlugin(ctx, target)
 		case ActionOpenSession:
 			err = m.actionRunner.OpenSession(ctx, target)
+		case ActionStartSession:
+			err = m.actionRunner.StartSession(ctx, target)
 		case ActionRestartSession:
 			err = m.actionRunner.RestartSession(ctx, target)
 		case ActionPresetNudge:
@@ -679,7 +681,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.loadData
 
 	case "b":
-		// Context-dependent: Beads form (Beads section), start infrastructure (Operator section), or boot rig (Rigs section)
+		// Context-dependent: Beads form (Beads section), start infrastructure (Operator section), start agent (Agents section), or boot rig (Rigs section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionBeads {
 			// Open beads form for create or edit
 			var selectedBead *data.Issue
@@ -705,6 +707,25 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
 			// Start selected infrastructure subsystem
 			return m.handleInfrastructureStart()
+		}
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionAgents {
+			// Start selected agent's session
+			if m.selectedAgent == "" {
+				m.setStatus("No agent selected. Use j/k to select an agent.", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			// Get the selected agent's running state
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Agents) {
+				m.setStatus("No agent selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			agent := m.sidebar.Agents[m.sidebar.Selection].a
+			if agent.Running {
+				m.setStatus("Agent is already running", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			m.setStatus("Starting session for "+m.selectedAgent+"...", false)
+			return m, m.actionCmd(ActionStartSession, m.selectedAgent)
 		}
 		// Boot selected rig
 		if m.selectedRig == "" {
@@ -3015,6 +3036,8 @@ func actionName(action ActionType) string {
 		return "Toggle plugin"
 	case ActionOpenSession:
 		return "Attach session"
+	case ActionStartSession:
+		return "Start session"
 	case ActionRestartSession:
 		return "Restart session"
 	case ActionPresetNudge:
@@ -3760,7 +3783,7 @@ func (m Model) renderFooter() string {
 				helpItems = append(helpItems, "H: history")
 			}
 			if m.sidebar.Section == SectionAgents {
-				helpItems = append(helpItems, "c: stop idle", "C: stop all idle")
+				helpItems = append(helpItems, "b: start", "c: stop idle", "C: stop all idle")
 			}
 			if m.sidebar.Section == SectionLifecycle {
 				helpItems = append(helpItems, "e: type filter", "g: agent filter", "x: clear")
