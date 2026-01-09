@@ -20,6 +20,7 @@ const (
 	PanelOverview Panel = iota
 	PanelSidebar
 	PanelDetails
+	PanelActivity
 )
 
 // Model is the main TUI model
@@ -648,11 +649,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		m.focus = (m.focus + 1) % 3
+		m.focus = (m.focus + 1) % 4
 		return m, nil
 
 	case "shift+tab":
-		m.focus = (m.focus + 2) % 3
+		m.focus = (m.focus + 3) % 4
 		return m, nil
 
 	case "r":
@@ -3241,7 +3242,16 @@ func (m Model) renderLayout() string {
 	if sidebarWidth > 40 {
 		sidebarWidth = 40
 	}
-	detailsWidth := m.width - sidebarWidth
+
+	// Activity feed takes 25% of remaining space, details gets the rest
+	activityWidth := (m.width - sidebarWidth) * 25 / 100
+	if activityWidth < 25 {
+		activityWidth = 25
+	}
+	if activityWidth > 40 {
+		activityWidth = 40
+	}
+	detailsWidth := m.width - sidebarWidth - activityWidth
 
 	// Render panels
 	overview := m.renderOverview(m.width, overviewHeight)
@@ -3271,10 +3281,18 @@ func (m Model) renderLayout() string {
 		comments = m.beadComments
 	}
 	details := RenderDetails(m.sidebar, m.snapshot, auditState, detailsWidth, bodyHeight, m.focus == PanelDetails, deps, comments)
+
+	// Render activity feed
+	var activityState *activityState
+	if m.sidebar != nil {
+		activityState = m.sidebar.Activity
+	}
+	activity := RenderActivityFeed(activityState, activityWidth, bodyHeight, m.focus == PanelActivity)
+
 	footer := m.renderFooter()
 
-	// Combine sidebar and details horizontally
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, details)
+	// Combine sidebar, details, and activity horizontally
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, details, activity)
 
 	// Stack vertically
 	return lipgloss.JoinVertical(lipgloss.Left, overview, body, footer)

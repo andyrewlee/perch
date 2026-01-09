@@ -450,6 +450,9 @@ type SidebarState struct {
 	Alerts          []alertItem // Load errors with actionable details
 	Beads           []beadItem  // Beads browser items (filtered by scope)
 
+	// Activity feed state
+	Activity *activityState // Chronological feed of key events
+
 	// Beads scope: Town (hq-*) vs Rig
 	BeadsScope BeadsScope
 
@@ -1004,6 +1007,9 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 			s.Operator = append(s.Operator, operatorItem{sub})
 		}
 	}
+
+	// Update activity feed
+	s.Activity = buildActivityFeed(snap, s.Activity)
 
 	// Clamp selection to valid range
 	s.clampSelection()
