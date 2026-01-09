@@ -2801,11 +2801,13 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 	lines = append(lines, mutedStyle.Render("  n=nudge  Send quick message"))
 	lines = append(lines, mutedStyle.Render("  m=mail   Compose message"))
 	lines = append(lines, mutedStyle.Render("Session:"))
-	lines = append(lines, mutedStyle.Render("  R=restart Restart agent session"))
 	if a.Running {
+		lines = append(lines, mutedStyle.Render("  R=restart Restart agent session"))
 		lines = append(lines, mutedStyle.Render("  t=attach Direct tmux access (advanced)"))
+		lines = append(lines, mutedStyle.Render("  K=kill   Stop agent"))
+	} else {
+		lines = append(lines, mutedStyle.Render("  b=start  Start agent session"))
 	}
-	lines = append(lines, mutedStyle.Render("  K=kill   Stop agent"))
 	lines = append(lines, mutedStyle.Render("Work:"))
 	lines = append(lines, mutedStyle.Render("  S=sling  Assign work"))
 	lines = append(lines, mutedStyle.Render("  H=handoff Transfer work"))
