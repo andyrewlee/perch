@@ -110,13 +110,13 @@ func NewAgentDashboard(snap *data.Snapshot) *AgentDashboard {
 	if snap == nil || snap.Town == nil {
 		return &AgentDashboard{
 			Entries:     []AgentEntry{},
-			LastRefresh: time.Now(),
+			LastRefresh: now(),
 		}
 	}
 
 	dash := &AgentDashboard{
 		Entries:     []AgentEntry{},
-		LastRefresh: time.Now(),
+		LastRefresh: now(),
 		Summary: AgentSummary{
 			ByRig:  make(map[string]int),
 			ByRole: make(map[string]int),
@@ -154,7 +154,7 @@ func buildAgentEntry(agent data.Agent, rigName string, snap *data.Snapshot) Agen
 	} else if agent.HasWork {
 		// Check work age for staleness
 		if !agent.HookedAt.IsZero() {
-			entry.WorkAge = time.Since(agent.HookedAt)
+			entry.WorkAge = since(agent.HookedAt)
 			if entry.WorkAge > 2*time.Hour {
 				entry.HealthStatus = AgentStale
 			} else {

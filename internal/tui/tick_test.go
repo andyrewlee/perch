@@ -148,7 +148,9 @@ func TestRenderHUDShowsConnected(t *testing.T) {
 	m := NewTestModel(t)
 	m.ready = true
 	m.width = 80
-	m.lastRefresh = time.Now()
+	resetNow := setNow(time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC))
+	defer resetNow()
+	m.lastRefresh = now().Add(-30 * time.Second)
 
 	hud := m.renderHUD()
 	if hud == "" {
@@ -213,7 +215,9 @@ func TestRenderHUD_GoldenConnected(t *testing.T) {
 
 	m := NewTestModel(t)
 	m.width = 80
-	m.lastRefresh = time.Now().Add(-30 * time.Second)
+	resetNow := setNow(time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC))
+	defer resetNow()
+	m.lastRefresh = now().Add(-30 * time.Second)
 
 	hud := m.renderHUD()
 	CheckGolden(t, "hud_connected", hud, DefaultGoldenOptions())
@@ -225,7 +229,9 @@ func TestRenderHUD_GoldenRefreshing(t *testing.T) {
 	m := NewTestModel(t)
 	m.width = 80
 	m.isRefreshing = true
-	m.lastRefresh = time.Now().Add(-1 * time.Minute)
+	resetNow := setNow(time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC))
+	defer resetNow()
+	m.lastRefresh = now().Add(-1 * time.Minute)
 
 	hud := m.renderHUD()
 	CheckGolden(t, "hud_refreshing", hud, DefaultGoldenOptions())
@@ -237,7 +243,9 @@ func TestRenderHUD_GoldenWithErrors(t *testing.T) {
 	m := NewTestModel(t)
 	m.width = 80
 	m.errorCount = 3
-	m.lastRefresh = time.Now().Add(-2 * time.Minute)
+	resetNow := setNow(time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC))
+	defer resetNow()
+	m.lastRefresh = now().Add(-2 * time.Minute)
 
 	hud := m.renderHUD()
 	CheckGolden(t, "hud_with_errors", hud, DefaultGoldenOptions())
@@ -248,7 +256,9 @@ func TestRenderFooter_GoldenNormal(t *testing.T) {
 
 	m := NewTestModel(t)
 	m.width = 80
-	m.lastRefresh = time.Now().Add(-45 * time.Second)
+	resetNow := setNow(time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC))
+	defer resetNow()
+	m.lastRefresh = now().Add(-45 * time.Second)
 
 	footer := m.renderFooter()
 	CheckGolden(t, "footer_normal", footer, DefaultGoldenOptions())

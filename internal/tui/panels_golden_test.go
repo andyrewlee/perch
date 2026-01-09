@@ -300,14 +300,15 @@ func TestGolden_SidebarPanels(t *testing.T) {
 			name:   "mail_section_with_messages",
 			golden: "sidebar_mail_messages",
 			state: func() *SidebarState {
+				now := time.Date(2026, 1, 8, 16, 30, 0, 0, time.UTC)
 				s := NewSidebarState()
 				s.Section = SectionMail
 				s.MailLoading = false
 				s.Selection = 0
 				s.Mail = []mailItem{
-					{m: data.MailMessage{ID: "mail-001", From: "mayor", To: "perch/witness", Subject: "New work assigned", Read: false, Type: "MERGE_READY", Timestamp: time.Now()}},
-					{m: data.MailMessage{ID: "mail-002", From: "refinery", To: "perch/polecats/able", Subject: "Merge complete", Read: true, Type: "MERGED", Timestamp: time.Now().Add(-1 * time.Hour)}},
-					{m: data.MailMessage{ID: "mail-003", From: "witness", To: "perch/polecats/baker", Subject: "Rework requested", Read: false, Type: "REWORK_REQUEST", Timestamp: time.Now().Add(-2 * time.Hour)}},
+					{m: data.MailMessage{ID: "mail-001", From: "mayor", To: "perch/witness", Subject: "New work assigned", Read: false, Type: "MERGE_READY", Timestamp: now}},
+					{m: data.MailMessage{ID: "mail-002", From: "refinery", To: "perch/polecats/able", Subject: "Merge complete", Read: true, Type: "MERGED", Timestamp: now.Add(-1 * time.Hour)}},
+					{m: data.MailMessage{ID: "mail-003", From: "witness", To: "perch/polecats/baker", Subject: "Rework requested", Read: false, Type: "REWORK_REQUEST", Timestamp: now.Add(-2 * time.Hour)}},
 				}
 				return s
 			},
@@ -333,11 +334,12 @@ func TestGolden_SidebarPanels(t *testing.T) {
 			name:   "alerts_section_with_errors",
 			golden: "sidebar_alerts_errors",
 			state: func() *SidebarState {
+				now := time.Date(2026, 1, 8, 16, 30, 0, 0, time.UTC)
 				s := NewSidebarState()
 				s.Section = SectionAlerts
 				s.Alerts = []alertItem{
-					{e: data.LoadError{Source: "Town Status", Command: "gt status", Error: "connection refused", OccurredAt: time.Now().Add(-5 * time.Minute)}},
-					{e: data.LoadError{Source: "Convoy", Command: "gt convoy list", Error: "timeout", OccurredAt: time.Now().Add(-2 * time.Minute)}},
+					{e: data.LoadError{Source: "Town Status", Command: "gt status", Error: "connection refused", OccurredAt: now.Add(-5 * time.Minute)}},
+					{e: data.LoadError{Source: "Convoy", Command: "gt convoy list", Error: "timeout", OccurredAt: now.Add(-2 * time.Minute)}},
 				}
 				return s
 			},
@@ -371,7 +373,9 @@ func TestGolden_SidebarPanels(t *testing.T) {
 
 // TestGolden_DetailsPanels tests golden renders of details panels.
 func TestGolden_DetailsPanels(t *testing.T) {
-	now := time.Now()
+	now := time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC)
+	resetNow := setNow(now)
+	defer resetNow()
 	tests := []struct {
 		name   string
 		golden string
@@ -613,9 +617,9 @@ func TestGolden_DetailsPanels(t *testing.T) {
 						Priority:       1,
 						Status:         "in_progress",
 						Assignee:       "able",
-						CreatedAt:      now.Add(-48 * time.Hour),
+						CreatedAt:      now.Add(-48 * time.Hour).Add(-3 * time.Minute),
 						CreatedBy:      "testuser",
-						UpdatedAt:      now.Add(-2 * time.Hour),
+						UpdatedAt:      now.Add(-2 * time.Hour).Add(-3 * time.Minute),
 						DependencyCount: 1,
 						DependentCount:  2,
 						Labels:         []string{"tui", "feature"},
@@ -645,7 +649,7 @@ func TestGolden_DetailsPanels(t *testing.T) {
 						Read:      false,
 						Type:      "MERGE_READY",
 						Priority:  "high",
-						Timestamp: now.Add(-30 * time.Minute),
+						Timestamp: now.Add(-30 * time.Minute).Add(-3 * time.Minute),
 						ThreadID:  "thread-001",
 					}},
 				}
@@ -734,6 +738,9 @@ func TestGolden_HelpOverlay(t *testing.T) {
 
 // TestGolden_FooterHUD tests golden renders of the footer HUD in various states.
 func TestGolden_FooterHUD(t *testing.T) {
+	now := time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC)
+	resetNow := setNow(now)
+	defer resetNow()
 	tests := []struct {
 		name   string
 		golden string
@@ -762,48 +769,50 @@ func TestGolden_FooterHUD(t *testing.T) {
 				return m
 			},
 		},
-		{
-			name:   "hud_connected",
-			golden: "hud_connected",
-			model: func(t *testing.T) Model {
-				t.Helper()
-				m := NewTestModel(t)
-				m.ready = true
-				m.width = 80
-				m.lastRefresh = time.Now()
-				return m
-			},
+	{
+		name:   "hud_connected",
+		golden: "hud_connected",
+		model: func(t *testing.T) Model {
+			t.Helper()
+			now := time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC)
+			m := NewTestModel(t)
+			m.ready = true
+			m.width = 80
+			m.lastRefresh = now
+			return m
 		},
-		{
-			name:   "hud_with_errors",
-			golden: "hud_with_errors",
-			model: func(t *testing.T) Model {
-				t.Helper()
-				m := NewTestModel(t)
-				m.ready = true
-				m.width = 80
-				m.errorCount = 3
-				m.lastRefresh = time.Now().Add(-1 * time.Minute)
-				return m
-			},
+	},
+	{
+		name:   "hud_with_errors",
+		golden: "hud_with_errors",
+		model: func(t *testing.T) Model {
+			t.Helper()
+			now := time.Date(2026, 1, 8, 17, 0, 0, 0, time.UTC)
+			m := NewTestModel(t)
+			m.ready = true
+			m.width = 80
+			m.errorCount = 3
+			m.lastRefresh = now.Add(-1 * time.Minute)
+			return m
 		},
-		{
-			name:   "hud_with_status_message",
-			golden: "hud_with_status",
-			model: func(t *testing.T) Model {
-				t.Helper()
-				m := NewTestModel(t)
-				m.ready = true
-				m.width = 80
-				m.lastRefresh = time.Now()
-				m.statusMessage = &StatusMessage{
-					Text:      "Work submitted successfully",
-					IsError:   false,
-					ExpiresAt: time.Now().Add(5 * time.Second),
-				}
-				return m
-			},
+	},
+	{
+		name:   "hud_with_status_message",
+		golden: "hud_with_status",
+		model: func(t *testing.T) Model {
+			t.Helper()
+			m := NewTestModel(t)
+			m.ready = true
+			m.width = 80
+			m.lastRefresh = now
+			m.statusMessage = &StatusMessage{
+				Text:      "Work submitted successfully",
+				IsError:   false,
+				ExpiresAt: now.Add(5 * time.Second),
+			}
+			return m
 		},
+	},
 	}
 
 	for _, tt := range tests {

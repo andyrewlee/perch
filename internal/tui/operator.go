@@ -103,7 +103,7 @@ func BuildOperatorState(snap *data.Snapshot) *OperatorState {
 	}
 
 	state := &OperatorState{
-		LastRefresh: time.Now(),
+		LastRefresh: now(),
 	}
 
 	// 1. Deacon health
@@ -161,7 +161,7 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 		Name:        "Deacon",
 		Subsystem:   "deacon",
 		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		LastChecked: now(),
 	}
 
 	if snap.OperationalState == nil {
@@ -213,7 +213,7 @@ func buildDeaconHealth(snap *data.Snapshot) SubsystemHealth {
 
 	// Check heartbeat freshness
 	if !state.LastDeaconHeartbeat.IsZero() {
-		age := time.Since(state.LastDeaconHeartbeat)
+		age := since(state.LastDeaconHeartbeat)
 		if age > 5*time.Minute {
 			h.Status = SubsystemWarning
 			h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(age))
@@ -238,7 +238,7 @@ func buildBeadsSyncHealth(snap *data.Snapshot) SubsystemHealth {
 		Name:        "Beads Sync",
 		Subsystem:   "beads_sync",
 		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		LastChecked: now(),
 	}
 
 	// Check for beads-related load errors
@@ -273,7 +273,7 @@ func buildMigrationHealth(snap *data.Snapshot) SubsystemHealth {
 		Name:        "Agent Bead Migration",
 		Subsystem:   "agent_migration",
 		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		LastChecked: now(),
 	}
 
 	// Get town prefix from routes (e.g., "gt-")
@@ -362,7 +362,7 @@ func buildAllAgentsHealth(snap *data.Snapshot) SubsystemHealth {
 		Name:        "All Agents",
 		Subsystem:   "all_agents",
 		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		LastChecked: now(),
 	}
 
 	if snap.Town == nil {
@@ -444,7 +444,7 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 		Subsystem:    fmt.Sprintf("witness_%s", rig.Name),
 		Rig:          rig.Name,
 		Status:       SubsystemHealthy,
-		LastChecked:  time.Now(),
+		LastChecked:  now(),
 		LastHeartbeat: lastHeartbeat,
 	}
 
@@ -485,7 +485,7 @@ func buildWitnessHealth(rig data.Rig, lastHeartbeat time.Time) SubsystemHealth {
 
 	// Check heartbeat freshness
 	if !lastHeartbeat.IsZero() {
-		age := time.Since(lastHeartbeat)
+		age := since(lastHeartbeat)
 		if age > 5*time.Minute {
 			h.Status = SubsystemWarning
 			h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(age))
@@ -511,7 +511,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 		Subsystem:    fmt.Sprintf("refinery_%s", rig.Name),
 		Rig:          rig.Name,
 		Status:       SubsystemHealthy,
-		LastChecked:  time.Now(),
+		LastChecked:  now(),
 		LastHeartbeat: lastHeartbeat,
 	}
 
@@ -553,7 +553,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 	// Check heartbeat freshness
 	staleHeartbeat := false
 	if !lastHeartbeat.IsZero() {
-		age := time.Since(lastHeartbeat)
+		age := since(lastHeartbeat)
 		if age > 5*time.Minute {
 			h.Status = SubsystemWarning
 			staleHeartbeat = true
@@ -577,7 +577,7 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 	}
 
 	if staleHeartbeat {
-		h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(time.Since(lastHeartbeat)))
+		h.Message = fmt.Sprintf("Stale heartbeat (%s ago)", formatDuration(since(lastHeartbeat)))
 		h.Details = "Refinery hasn't checked in recently"
 		h.Action = "Press 'r' to restart refinery"
 		return h
@@ -585,13 +585,13 @@ func buildRefineryHealth(rig data.Rig, mrs []data.MergeRequest, lastHeartbeat ti
 
 	if len(mrs) > 0 {
 		if !lastHeartbeat.IsZero() {
-			h.Message = fmt.Sprintf("Running (%d queued, heartbeat: %s ago)", len(mrs), formatDuration(time.Since(lastHeartbeat)))
+			h.Message = fmt.Sprintf("Running (%d queued, heartbeat: %s ago)", len(mrs), formatDuration(since(lastHeartbeat)))
 		} else {
 			h.Message = fmt.Sprintf("Running (%d queued)", len(mrs))
 		}
 	} else {
 		if !lastHeartbeat.IsZero() {
-			h.Message = fmt.Sprintf("Idle (heartbeat: %s ago)", formatDuration(time.Since(lastHeartbeat)))
+			h.Message = fmt.Sprintf("Idle (heartbeat: %s ago)", formatDuration(since(lastHeartbeat)))
 		} else {
 			h.Message = "Idle"
 		}
@@ -609,7 +609,7 @@ func buildHooksHealth(rig data.Rig) SubsystemHealth {
 		Subsystem:   fmt.Sprintf("hooks_%s", rig.Name),
 		Rig:         rig.Name,
 		Status:      SubsystemHealthy,
-		LastChecked: time.Now(),
+		LastChecked: now(),
 	}
 
 	activeHooks := 0
@@ -726,7 +726,7 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 
 		// Last heartbeat (if available)
 		if !sub.LastHeartbeat.IsZero() {
-			age := time.Since(sub.LastHeartbeat)
+			age := since(sub.LastHeartbeat)
 			lines = append(lines, fmt.Sprintf("Last heartbeat: %s ago", formatDuration(age)))
 		}
 		lines = append(lines, "")

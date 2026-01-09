@@ -523,13 +523,13 @@ func NewStatusMessage(text string, isError bool, duration time.Duration) StatusM
 	return StatusMessage{
 		Text:      text,
 		IsError:   isError,
-		ExpiresAt: time.Now().Add(duration),
+		ExpiresAt: now().Add(duration),
 	}
 }
 
 // IsExpired returns true if the message should no longer be displayed.
 func (m StatusMessage) IsExpired() bool {
-	return time.Now().After(m.ExpiresAt)
+	return now().After(m.ExpiresAt)
 }
 
 // ConfirmDialog represents a confirmation dialog for destructive actions.

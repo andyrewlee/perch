@@ -27,10 +27,11 @@ const (
 	SectionAlerts
 	SectionErrors
 	SectionBeads // Beads browser (issues)
+	SectionOperator // Operator console (system health)
 )
 
 // SectionCount is the total number of sidebar sections
-const SectionCount = 12
+const SectionCount = 13
 
 func (s SidebarSection) String() string {
 	switch s {
@@ -58,6 +59,8 @@ func (s SidebarSection) String() string {
 		return "Errors"
 	case SectionBeads:
 		return "Beads"
+	case SectionOperator:
+		return "Operator"
 	default:
 		return "Unknown"
 	}
@@ -477,6 +480,10 @@ type SidebarState struct {
 	BeadsLoadSuggestedAction string   // Suggested action to fix the load error
 	BeadsLoading           bool      // True during initial load
 	BeadsTotalCount        int       // Total issues before filtering (to detect filtered state)
+
+	// Operator console
+	OperatorState *OperatorState
+	Operator      []operatorItem
 	// Loading/error state for mail panel
 	MailLastRefresh   time.Time // Last successful mail data refresh
 	MailLoadError     error     // Error from last mail load attempt (nil if successful)
@@ -1157,6 +1164,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		// For beads, show scope toggle state [R]ig or [T]own
 		// Also show active filters and filter badge if issues are filtered
 		if sec == SectionBeads {
+			scopeBadge := "R"
 			if state.BeadsScope == BeadsScopeTown {
 				scopeBadge = "T"
 			}
@@ -1201,7 +1209,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			list = renderAgentsList(state, snap, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
-			list = renderConvoysList(state, items, isActive, innerWidth, sectionHeight)
+			list = renderConvoysList(state, snap, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionMail {
 			// Special handling for mail section with loading/error states
 			list = renderMailList(state, items, isActive, innerWidth, sectionHeight)
@@ -1210,7 +1218,8 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 			list = renderAlertsEmptyState(isActive)
 		} else if sec == SectionBeads && len(items) == 0 {
 			// Special empty state for beads
-			list = renderBeadsEmptyState(state, isActive)
+			hasError := state.BeadsLoadError != nil
+			list = renderBeadsEmptyState(state, isActive, hasError)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -1392,7 +1401,7 @@ func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool
 
 	// Last merge time (if available)
 	if opts != nil && !opts.LastMergeTime.IsZero() {
-		ago := formatDuration(time.Since(opts.LastMergeTime))
+		ago := formatDuration(since(opts.LastMergeTime))
 		lines = append(lines, mutedStyle.Render("  Last merge: "+ago+" ago"))
 	}
 
@@ -1639,7 +1648,7 @@ func servicesAppearStopped(snap *data.Snapshot) bool {
 		}
 		// If no recent deacon heartbeat (> 5 minutes), consider stopped
 		if !snap.OperationalState.LastDeaconHeartbeat.IsZero() {
-			if time.Since(snap.OperationalState.LastDeaconHeartbeat) > 5*time.Minute {
+			if since(snap.OperationalState.LastDeaconHeartbeat) > 5*time.Minute {
 				return true
 			}
 		}
@@ -1937,7 +1946,7 @@ func renderBeadsList(state *SidebarState, items []SelectableItem, isActiveSectio
 }
 
 // renderBeadsEmptyState renders the empty state for the beads section.
-func renderBeadsEmptyState(state *SidebarState, isActive bool) string {
+func renderBeadsEmptyState(state *SidebarState, isActive bool, hasError bool) string {
 	var lines []string
 	scopeLabel := "rig"
 	if state.BeadsScope == BeadsScopeTown {
@@ -2133,7 +2142,7 @@ func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string
 		if lastSuccess, ok := snap.LastSuccess[e.Source]; ok {
 			lines = append(lines, headerStyle.Render("Last Successful Load"))
 			lines = append(lines, fmt.Sprintf("Time:      %s", lastSuccess.Format("2006-01-02 15:04:05")))
-			lines = append(lines, fmt.Sprintf("Ago:       %s", formatDuration(time.Since(lastSuccess))))
+			lines = append(lines, fmt.Sprintf("Ago:       %s", formatDuration(since(lastSuccess))))
 			lines = append(lines, "")
 		}
 	}
@@ -2677,7 +2686,7 @@ func formatAge(t time.Time) string {
 	if t.IsZero() {
 		return "unknown"
 	}
-	d := time.Since(t)
+	d := since(t)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
@@ -2756,7 +2765,7 @@ func renderAuditTimeline(audit *AuditTimelineState, width int) string {
 
 // formatRelativeTime formats a timestamp as relative time (e.g., "2m ago", "1h ago", "Jan 2").
 func formatRelativeTime(t time.Time) string {
-	since := time.Since(t)
+	since := since(t)
 	switch {
 	case since < time.Minute:
 		return "now"
@@ -3116,4 +3125,3 @@ func renderIdentityDetails(id *data.Identity, mail []data.MailMessage, routes *d
 
 	return strings.Join(lines, "\n")
 }
-
