@@ -2675,6 +2675,35 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	lines = append(lines, fmt.Sprintf("Branch:   %s", mr.Branch))
 	lines = append(lines, fmt.Sprintf("Priority: P%d", mr.Priority))
 
+	// Status indicators section - shows claimed, tests running, conflict status
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Status"))
+
+	// Build status indicators line
+	var statusIndicators []string
+	if mr.HasConflicts {
+		statusIndicators = append(statusIndicators, conflictStyle.Render("⚠ conflicts"))
+	}
+	if mr.NeedsRebase {
+		statusIndicators = append(statusIndicators, rebaseStyle.Render("↻ rebase needed"))
+	}
+	// Tests running status - check if status indicates tests are running
+	if mr.Status == "testing" || mr.Status == "running_tests" {
+		statusIndicators = append(statusIndicators, queueTestsBadge.Render("⧉ tests running"))
+	}
+	// Claimed status - check if worker has claimed this MR
+	if mr.Status == "claimed" || mr.Worker != "" {
+		statusIndicators = append(statusIndicators, queueClaimedBadge.Render("⚙ claimed by "+mr.Worker))
+	}
+
+	if len(statusIndicators) > 0 {
+		for _, si := range statusIndicators {
+			lines = append(lines, "  "+si)
+		}
+	} else {
+		lines = append(lines, mutedStyle.Render("  (no issues)"))
+	}
+
 	// Conflict/Rebase status section
 	if mr.HasConflicts || mr.NeedsRebase {
 		lines = append(lines, "")
@@ -2718,6 +2747,20 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 			lines = append(lines, "")
 			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Checked: %s", mr.LastChecked)))
 		}
+	}
+
+	// Action panel - shows available actions for this MR
+	lines = append(lines, "")
+	lines = append(lines, headerStyle.Render("Actions"))
+	lines = append(lines, mutedStyle.Render("Queue Control:"))
+	lines = append(lines, mutedStyle.Render("  r=retry     Retry this merge request"))
+	lines = append(lines, mutedStyle.Render("  d=details   View blockers and conflicts"))
+	lines = append(lines, mutedStyle.Render("  l=logs      Open MR logs"))
+	lines = append(lines, mutedStyle.Render("Worker:"))
+	if mr.Worker != "" {
+		lines = append(lines, mutedStyle.Render(fmt.Sprintf("  n=nudge     Send nudge to %s", mr.Worker)))
+	} else {
+		lines = append(lines, mutedStyle.Render("  (no worker assigned)"))
 	}
 
 	return strings.Join(lines, "\n")
