@@ -1174,6 +1174,31 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				entry.HealthStatus = AgentIdle
 			}
 			m.agentDetailDialog = NewAgentDetailDialog(entry)
+
+			// Populate last activity from audit timeline
+			if m.auditTimelineActor == agentItem.a.Address && len(m.auditTimeline) > 0 {
+				// Get the most recent audit entry
+				mostRecent := m.auditTimeline[0]
+				m.agentDetailDialog.SetLastActivity(mostRecent.Summary, mostRecent.Timestamp, mostRecent.Type)
+			}
+
+			// Populate last mail from snapshot
+			if m.snapshot != nil && len(m.snapshot.Mail) > 0 {
+				// Find the most recent mail involving this agent
+				var mostRecentMail *data.MailMessage
+				for _, mail := range m.snapshot.Mail {
+					// Check if mail is to or from this agent
+					if strings.Contains(mail.To, agentItem.a.Address) || strings.Contains(mail.From, agentItem.a.Address) {
+						if mostRecentMail == nil || mail.Timestamp.After(mostRecentMail.Timestamp) {
+							mostRecentMail = &mail
+						}
+					}
+				}
+				if mostRecentMail != nil {
+					m.agentDetailDialog.SetLastMail(mostRecentMail.Subject, mostRecentMail.Timestamp, mostRecentMail.From)
+				}
+			}
+
 			return m, nil
 		}
 		return m, nil

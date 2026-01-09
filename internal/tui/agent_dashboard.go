@@ -372,6 +372,16 @@ type AgentDetailDialog struct {
 	MailUnread    int
 	SelectedAction int // 0=nudge, 1=attach, 2=mail, 3=handoff/stop/start
 	ShowActions   bool // Toggle action menu visibility
+
+	// Last activity from audit timeline
+	LastActivitySummary string
+	LastActivityTime    time.Time
+	LastActivityType    string
+
+	// Last message details
+	LastMailSubject string
+	LastMailTime    time.Time
+	LastMailFrom    string
 }
 
 // NewAgentDetailDialog creates a new agent detail dialog from an AgentEntry.
@@ -386,6 +396,20 @@ func NewAgentDetailDialog(entry AgentEntry) *AgentDetailDialog {
 		SelectedAction: 0,
 		ShowActions:   true,
 	}
+}
+
+// SetLastActivity sets the last activity information from audit data.
+func (d *AgentDetailDialog) SetLastActivity(summary string, timestamp time.Time, activityType string) {
+	d.LastActivitySummary = summary
+	d.LastActivityTime = timestamp
+	d.LastActivityType = activityType
+}
+
+// SetLastMail sets the last message information.
+func (d *AgentDetailDialog) SetLastMail(subject string, timestamp time.Time, from string) {
+	d.LastMailSubject = subject
+	d.LastMailTime = timestamp
+	d.LastMailFrom = from
 }
 
 // Render renders the agent detail dialog.
@@ -431,6 +455,24 @@ func (d *AgentDetailDialog) Render(width, height int) string {
 		lines = append(lines, mutedStyle.Render("  No work hooked"))
 	}
 
+	// Last Activity section
+	lines = append(lines, "")
+	lines = append(lines, dialogSectionStyle.Render("┌─ Last Activity ─────────────────"))
+	if !d.LastActivityTime.IsZero() {
+		lines = append(lines, "")
+		lines = append(lines, dialogLabelStyle.Render("When:      ")+dialogValueStyle.Render(formatTimestamp(d.LastActivityTime)))
+		if d.LastActivityType != "" {
+			lines = append(lines, dialogLabelStyle.Render("Type:      ")+dialogValueStyle.Render(d.LastActivityType))
+		}
+		if d.LastActivitySummary != "" {
+			summary := truncateString(d.LastActivitySummary, 50)
+			lines = append(lines, dialogLabelStyle.Render("Summary:   ")+dialogValueStyle.Render(summary))
+		}
+	} else {
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle.Render("  No recent activity"))
+	}
+
 	// Mail section
 	lines = append(lines, "")
 	lines = append(lines, dialogSectionStyle.Render("┌─ Mail ──────────────────────────"))
@@ -440,10 +482,21 @@ func (d *AgentDetailDialog) Render(width, height int) string {
 		if d.MailUnread > 1 {
 			mailLine = dialogValueStyle.Render(fmt.Sprintf("%d unread messages", d.MailUnread))
 		}
-		if d.Agent.FirstSubject != "" {
-			mailLine += mutedStyle.Render(fmt.Sprintf(" (\"%s\")", truncateString(d.Agent.FirstSubject, 30)))
-		}
 		lines = append(lines, "  ✉ " + mailLine)
+
+		// Show last message details if available
+		if d.LastMailSubject != "" {
+			subject := truncateString(d.LastMailSubject, 45)
+			lines = append(lines, "")
+			lines = append(lines, dialogLabelStyle.Render("Subject:   ")+dialogValueStyle.Render(subject))
+		}
+		if !d.LastMailTime.IsZero() {
+			lines = append(lines, dialogLabelStyle.Render("Received:  ")+dialogValueStyle.Render(formatTimestamp(d.LastMailTime)))
+		}
+		if d.LastMailFrom != "" {
+			from := truncateString(d.LastMailFrom, 25)
+			lines = append(lines, dialogLabelStyle.Render("From:      ")+dialogValueStyle.Render(from))
+		}
 	} else {
 		lines = append(lines, "")
 		lines = append(lines, mutedStyle.Render("  No unread mail"))
