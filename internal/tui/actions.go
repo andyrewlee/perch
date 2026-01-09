@@ -65,6 +65,9 @@ const (
 	ActionStopRefinery    // Stop a Refinery
 	ActionRestartRefineryAlt // Restart a Refinery (alternative naming for clarity)
 
+	// Session actions
+	ActionViewSessionOutput // View recent session output (tmux-optional)
+
 	// Merge queue actions
 	ActionMQRetry         // Retry a failed merge request
 	ActionMQViewDetails   // View detailed MR status (blockers, conflicts)
@@ -398,6 +401,13 @@ func (r *ActionRunner) RestartSession(ctx context.Context, agentAddress string) 
 // Runs: gt session start <agent-address>
 func (r *ActionRunner) StartSession(ctx context.Context, agentAddress string) error {
 	return r.runCommand(ctx, "gt", "session", "start", agentAddress)
+}
+
+// ViewSessionOutput captures and displays recent agent session output.
+// This is a tmux-optional alternative to OpenSession that works without tmux.
+// Runs: gt session capture <agent-address>
+func (r *ActionRunner) ViewSessionOutput(ctx context.Context, agentAddress string) error {
+	return r.runCommand(ctx, "gt", "session", "capture", agentAddress)
 }
 
 // TogglePlugin enables or disables a plugin by creating/removing a .disabled marker file.
