@@ -11,10 +11,11 @@
 │          Session not running                 │
 │                                              │
 │ Hook                                         │
+│ Work assignment - hooked work executes       │
+│ immediately                                  │
 │ (empty)                                      │
 │                                              │
 │ Session Control                              │
 │ Session not running                          │
 │                                              │
-│ Activity Timeline                            │
 ╰──────────────────────────────────────────────╯

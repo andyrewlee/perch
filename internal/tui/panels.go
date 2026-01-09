@@ -2250,6 +2250,9 @@ func renderBeadDetails(issue data.Issue, state *SidebarState, width int, depende
 	// Status with visual indicator
 	statusBadge := beadStatusBadge(issue.Status)
 	lines = append(lines, fmt.Sprintf("Status:   %s %s", statusBadge, issue.Status))
+	if statusHelp := BeadStatusHelp(issue.Status); statusHelp != "" {
+		lines = append(lines, mutedStyle.Render("          "+statusHelp))
+	}
 	lines = append(lines, "")
 
 	// Assignee
@@ -2703,6 +2706,7 @@ func renderAgentDetails(a data.Agent, audit *AuditTimelineState, width int) stri
 	// Hook section - show hooked issue details
 	lines = append(lines, "")
 	lines = append(lines, headerStyle.Render("Hook"))
+	lines = append(lines, mutedStyle.Render("Work assignment - hooked work executes immediately"))
 	if a.HookedBeadID != "" {
 		lines = append(lines, fmt.Sprintf("Bead:    %s", a.HookedBeadID))
 		lines = append(lines, fmt.Sprintf("Title:   %s", a.FirstSubject))

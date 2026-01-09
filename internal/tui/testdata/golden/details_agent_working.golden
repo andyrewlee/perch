@@ -11,10 +11,11 @@
 │          Actively executing assigned work    │
 │                                              │
 │ Hook                                         │
+│ Work assignment - hooked work executes       │
+│ immediately                                  │
 │ Bead:    gt-001                              │
 │ Title:   Implement auth feature              │
 │ Status:  in_progress                         │
 │ Age:     2h                                  │
 │                                              │
-│ Session Control                              │
 ╰──────────────────────────────────────────────╯

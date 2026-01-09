@@ -4419,9 +4419,13 @@ func (m Model) renderHelpOverlay() string {
 
 	dismissMsg := "\n" + mutedStyle.Render("Press any key to dismiss")
 
+	// Build glossary section
+	glossary := buildGlossarySection()
+
 	// Combine content
 	content := welcomeMsg +
 		strings.Join(concepts, "\n") +
+		glossary +
 		strings.Join(keymap, "\n") +
 		dismissMsg
 
@@ -4457,6 +4461,25 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// buildGlossarySection creates a formatted glossary for the help overlay.
+func buildGlossarySection() string {
+	var sb strings.Builder
+	entries := GlossaryEntries()
+
+	sb.WriteString("\n")
+	sb.WriteString(helpHeaderStyle.Render("Glossary"))
+	sb.WriteString("\n")
+
+	for _, e := range entries {
+		sb.WriteString(helpKeyStyle.Render(e.Term))
+		sb.WriteString("       ")
+		sb.WriteString(e.Definition)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
 
 // agentTypeFromRole converts a role string to AgentType.
