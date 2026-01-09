@@ -1047,6 +1047,20 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Opening session for "+m.selectedAgent+"...", false)
 		return m, m.actionCmd(ActionOpenSession, m.selectedAgent)
 
+	case "L":
+		// View recent session output (tmux-optional fallback)
+		// Only works in Agents section
+		if m.sidebar.Section != SectionAgents {
+			m.setStatus("Switch to Agents section (press 4) to view output", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if m.selectedAgent == "" {
+			m.setStatus("No agent selected. Use j/k to select an agent.", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		m.setStatus("Capturing output from "+m.selectedAgent+"...", false)
+		return m, m.actionCmd(ActionViewSessionOutput, m.selectedAgent)
+
 	case "m":
 		// Context-dependent: Mail agent (Agents section) or toggle mail read (Mail section)
 		if m.sidebar != nil && m.sidebar.Section == SectionMail {
@@ -2666,11 +2680,11 @@ func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) 
 	if msg.err != nil {
 		errMsg := msg.err.Error()
 
-		// Check for tmux availability error and show concise message
+		// Check for tmux availability error and show helpful message with fallback
 		if msg.action == ActionOpenSession {
 			if strings.Contains(errMsg, "tmux is not installed") ||
 				strings.Contains(errMsg, "tmux") && strings.Contains(errMsg, "not available") {
-				m.setStatus("tmux not available. Install tmux or use 'gt session start' for details.", true)
+				m.setStatus("tmux unavailable. Press 'L' to view output or 'o' for logs.", true)
 				return m, statusExpireCmd(8 * time.Second)
 			}
 		}
@@ -4467,6 +4481,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("K") + "          Kill/stop agent",
 		helpKeyStyle.Render("n") + "          Nudge agent with message",
 		helpKeyStyle.Render("m") + "          Mail agent",
+		helpKeyStyle.Render("L") + "          View recent output (tmux-optional)",
 		helpKeyStyle.Render("T") + "          Open session (advanced)",
 		"",
 		helpHeaderStyle.Render("Plugin Actions (when in Plugins section)"),
