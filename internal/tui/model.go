@@ -105,6 +105,10 @@ type Model struct {
 	// Agent dashboard (shown for agent health overview)
 	agentDashboard *AgentDashboard
 	showAgentDashboard bool // True when agent dashboard view is active
+
+	// Town map view (interactive rig tiles)
+	townMapView  *TownMapView
+	showTownMap  bool // True when town map view is active
 }
 
 // GetDefaultTownRoot returns the default Gas Town root directory.
@@ -625,6 +629,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRigSettingsFormKey(msg)
 	}
 
+	// Handle town map view navigation
+	if m.showTownMap {
+		return m.handleTownMapKey(msg)
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -981,6 +990,16 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Message: "Stop agent '" + m.selectedAgent + "'? This will nuke the polecat. (y/n)",
 			Action:  ActionStopAgent,
 			Target:  m.selectedAgent,
+		}
+		return m, nil
+
+	case "V":
+		// Toggle town map view
+		m.showTownMap = !m.showTownMap
+		if m.showTownMap {
+			m.setStatus("Town map view: j/k to move, Enter for rig details, Esc to exit", false)
+		} else {
+			m.setStatus("Back to main view", false)
 		}
 		return m, nil
 
@@ -2542,6 +2561,76 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleTownMapKey handles keyboard input when in town map view.
+func (m Model) handleTownMapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Update town map view with current snapshot
+	if m.townMapView == nil && m.snapshot != nil {
+		m.townMapView = NewTownMapView(m.snapshot, m.width, m.height-2)
+	}
+
+	switch msg.String() {
+	case "esc":
+		// Exit town map view
+		m.showTownMap = false
+		m.townMapView = nil
+		m.setStatus("Back to main view", false)
+		return m, nil
+
+	case "enter":
+		// Select rig and exit town map view
+		if m.townMapView != nil {
+			rigName := m.townMapView.SelectedRig()
+			if rigName != "" {
+				m.selectedRig = rigName
+				m.showTownMap = false
+				m.townMapView = nil
+				m.setStatus("Selected rig: "+rigName, false)
+				// Switch to Rigs section
+				m.focus = PanelSidebar
+				m.sidebar.Section = SectionRigs
+				m.sidebar.Selection = 0
+				return m, statusExpireCmd(2*time.Second)
+			}
+		}
+		return m, nil
+
+	case "j", "down":
+		if m.townMapView != nil {
+			m.townMapView.MoveSelection("down")
+		}
+		return m, nil
+
+	case "k", "up":
+		if m.townMapView != nil {
+			m.townMapView.MoveSelection("up")
+		}
+		return m, nil
+
+	case "h", "left":
+		if m.townMapView != nil {
+			m.townMapView.MoveSelection("left")
+		}
+		return m, nil
+
+	case "l", "right":
+		if m.townMapView != nil {
+			m.townMapView.MoveSelection("right")
+		}
+		return m, nil
+
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "?":
+		m.showHelp = true
+		return m, nil
+
+	default:
+		// Ignore other keys in town map view
+		return m, nil
+	}
+}
+
 // handleActionComplete processes the result of an action.
 func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -3127,6 +3216,11 @@ func (m Model) View() string {
 		return m.renderRefileDialog()
 	}
 
+	// Show town map view if active
+	if m.showTownMap {
+		return m.renderTownMap()
+	}
+
 	return m.renderLayout()
 }
 
@@ -3184,6 +3278,26 @@ func (m Model) renderLayout() string {
 
 	// Stack vertically
 	return lipgloss.JoinVertical(lipgloss.Left, overview, body, footer)
+}
+
+// renderTownMap renders the interactive town map view.
+func (m Model) renderTownMap() string {
+	// Create or update town map view from snapshot
+	if m.townMapView == nil && m.snapshot != nil {
+		m.townMapView = NewTownMapView(m.snapshot, m.width, m.height-2)
+	} else if m.snapshot != nil {
+		// Update existing view with fresh data
+		m.townMapView = NewTownMapView(m.snapshot, m.width, m.height-2)
+	}
+
+	// Render title bar
+	title := titleStyle.Render("Town Map")
+	if m.townMapView != nil {
+		return lipgloss.JoinVertical(lipgloss.Left, title, m.townMapView.Render())
+	}
+
+	// Fallback if no data
+	return title + "\n" + mutedStyle.Render("No data available")
 }
 
 // renderOverview renders the overview panel
