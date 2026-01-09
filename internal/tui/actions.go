@@ -75,6 +75,9 @@ const (
 	ActionManageDeps     // Open dependency management dialog
 	ActionAddDependency  // Add a dependency (blocked-by relationship)
 	ActionRemoveDependency
+
+	// Debug/diagnostics
+	ActionExportSnapshot // Export snapshot to JSON for debugging
 )
 
 // Action represents a user-triggered action with its result.
@@ -522,6 +525,41 @@ func (r *ActionRunner) MQOpenLogs(ctx context.Context, mrID string) error {
 // Runs: gt log --agent <rig>/refinery -f
 func (r *ActionRunner) ViewMRLogs(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "log", "--agent", rig+"/refinery", "-f")
+}
+
+// ExportSnapshot exports the current snapshot to a JSON file for debugging.
+// The file is saved to ~/.perch/last_snapshot.json with timestamp and stale markers.
+func (r *ActionRunner) ExportSnapshot(ctx context.Context, snapshot interface{}) error {
+	// Create the .perch directory if it doesn't exist
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("getting home directory: %w", err)
+	}
+	perchDir := filepath.Join(homeDir, ".perch")
+	if err := os.MkdirAll(perchDir, 0755); err != nil {
+		return fmt.Errorf("creating .perch directory: %w", err)
+	}
+
+	// Wrap the snapshot with metadata
+	exportData := map[string]interface{}{
+		"exported_at": time.Now().Format(time.RFC3339),
+		"timestamp":  time.Now().Unix(),
+		"snapshot":   snapshot,
+	}
+
+	// Marshal to JSON with indentation for readability
+	jsonData, err := json.MarshalIndent(exportData, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling snapshot: %w", err)
+	}
+
+	// Write to the output file
+	outputPath := filepath.Join(perchDir, "last_snapshot.json")
+	if err := os.WriteFile(outputPath, jsonData, 0644); err != nil {
+		return fmt.Errorf("writing snapshot file: %w", err)
+	}
+
+	return nil
 }
 
 // runCommand executes a shell command and returns any error.

@@ -375,6 +375,9 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 		case ActionMQOpenLogs:
 			// input contains mrID, target is ignored
 			err = m.actionRunner.MQOpenLogs(ctx, input)
+		case ActionExportSnapshot:
+			// Export current snapshot to JSON for debugging
+			err = m.actionRunner.ExportSnapshot(ctx, m.snapshot)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -937,6 +940,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Target:  m.selectedRig,
 		}
 		return m, nil
+
+	case "D":
+		// Debug: export snapshot to JSON
+		m.setStatus("Exporting snapshot to ~/.perch/last_snapshot.json...", false)
+		return m, m.actionCmd(ActionExportSnapshot, "")
 
 	case "n":
 		// Context-sensitive nudge: merge queue or agents section
@@ -3016,6 +3024,8 @@ func actionName(action ActionType) string {
 		return "Stop polecat"
 	case ActionStopAllIdle:
 		return "Stop all idle"
+	case ActionExportSnapshot:
+		return "Export snapshot"
 	case ActionMarkMailRead:
 		return "Mark read"
 	case ActionMarkMailUnread:
@@ -4430,6 +4440,7 @@ func (m Model) renderHelpOverlay() string {
 		helpKeyStyle.Render("n") + "          Nudge polecat (merge queue)",
 		helpKeyStyle.Render("c") + "          Stop idle polecat (agents)",
 		helpKeyStyle.Render("C") + "          Stop all idle polecats in rig",
+		helpKeyStyle.Render("D") + "          Export snapshot to JSON (debug)",
 		helpKeyStyle.Render("r") + "          Refresh data",
 		helpKeyStyle.Render("b") + "          Boot rig / Create-edit bead (beads)",
 		helpKeyStyle.Render("s") + "          Shutdown rig / Toggle scope (beads)",
