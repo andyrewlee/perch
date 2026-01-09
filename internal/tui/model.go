@@ -2664,7 +2664,18 @@ func (m Model) handleTownMapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // handleActionComplete processes the result of an action.
 func (m Model) handleActionComplete(msg actionCompleteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.setStatus(actionName(msg.action)+" failed: "+msg.err.Error(), true)
+		errMsg := msg.err.Error()
+
+		// Check for tmux availability error and show concise message
+		if msg.action == ActionOpenSession {
+			if strings.Contains(errMsg, "tmux is not installed") ||
+				strings.Contains(errMsg, "tmux") && strings.Contains(errMsg, "not available") {
+				m.setStatus("tmux not available. Install tmux or use 'gt session start' for details.", true)
+				return m, statusExpireCmd(8 * time.Second)
+			}
+		}
+
+		m.setStatus(actionName(msg.action)+" failed: "+errMsg, true)
 		return m, statusExpireCmd(5 * time.Second)
 	}
 
