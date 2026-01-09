@@ -239,8 +239,9 @@ func (b beadItem) Status() string { return b.issue.Status }
 
 // rigItem wraps data.Rig for selection with aggregated counts
 type rigItem struct {
-	r       data.Rig
-	mrCount int // merge request count for this rig
+	r          data.Rig
+	mrCount    int // merge request count for this rig
+	hooksStale bool // true if hooks count is stale (hooked issues failed to load)
 }
 
 func (r rigItem) ID() string { return r.r.Name }
@@ -249,7 +250,12 @@ func (r rigItem) Label() string {
 	// Use Rig.ActiveHooks which is computed from hooked issues for consistency
 	// with Summary.ActiveHooks
 	totalHooks := len(r.r.Hooks)
-	return fmt.Sprintf("%s (%dpol %d/%dhk)", r.r.Name, r.r.PolecatCount, r.r.ActiveHooks, totalHooks)
+	label := fmt.Sprintf("%s (%dpol %d/%dhk)", r.r.Name, r.r.PolecatCount, r.r.ActiveHooks, totalHooks)
+	// Add staleness indicator if hook data is unreliable
+	if r.hooksStale {
+		label += " ⚠"
+	}
+	return label
 }
 func (r rigItem) Status() string {
 	// Count running agents
@@ -761,7 +767,7 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	if snap.Town != nil {
 		s.Rigs = make([]rigItem, len(snap.Town.Rigs))
 		for i, r := range snap.Town.Rigs {
-			s.Rigs[i] = rigItem{r: r, mrCount: mrCounts[r.Name]}
+			s.Rigs[i] = rigItem{r: r, mrCount: mrCounts[r.Name], hooksStale: snap.HooksCountStale()}
 		}
 	}
 
@@ -2913,7 +2919,11 @@ func renderRigDetails(r rigItem, width int) string {
 
 	// Hooks status - use Rig.ActiveHooks for consistency with summary
 	lines = append(lines, headerStyle.Render("Activity"))
-	lines = append(lines, fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), r.r.ActiveHooks))
+	hooksLine := fmt.Sprintf("Hooks:      %d total, %d active", len(r.r.Hooks), r.r.ActiveHooks)
+	if r.hooksStale {
+		hooksLine += " ⚠ (stale)"
+	}
+	lines = append(lines, hooksLine)
 	lines = append(lines, mutedStyle.Render("            "+RigComponentHelp.Hooks))
 
 	// Running agents in this rig
