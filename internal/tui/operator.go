@@ -689,7 +689,7 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 	var lines []string
 
 	lines = append(lines, headerStyle.Render("Operator Console"))
-	lines = append(lines, mutedStyle.Render("Subsystem health and recommended actions"))
+	lines = append(lines, mutedStyle.Render("Subsystem health and controls"))
 	lines = append(lines, "")
 
 	if state == nil || len(state.Subsystems) == 0 {
@@ -753,7 +753,7 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 			lines = append(lines, "")
 		}
 
-		// Recommended action
+		// Recommended action (if unhealthy)
 		if sub.Action != "" && sub.Status != SubsystemHealthy {
 			lines = append(lines, headerStyle.Render("Recommended Action"))
 			actionStyle := operatorActionStyle
@@ -763,12 +763,63 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 			lines = append(lines, actionStyle.Render("→ "+sub.Action))
 			lines = append(lines, "")
 		}
+
+		// Action controls for controllable subsystems
+		if isControllableSubsystem(sub.Subsystem) {
+			lines = append(lines, headerStyle.Render("Controls"))
+			controls := renderActionControls(sub)
+			for _, control := range controls {
+				lines = append(lines, control)
+			}
+			lines = append(lines, "")
+		}
 	}
 
 	// Quick actions hint
-	lines = append(lines, mutedStyle.Render("Press 'r' to refresh"))
+	lines = append(lines, mutedStyle.Render("Controls: [b] Start  [s] Stop  [r] Restart  [R] Refresh"))
 
 	return strings.Join(lines, "\n")
+}
+
+// isControllableSubsystem returns true if the subsystem can be started/stopped/restarted.
+func isControllableSubsystem(subsystem string) bool {
+	switch subsystem {
+	case "deacon", "beads_sync", "agent_migration", "all_agents":
+		return true
+	default:
+		// Per-rig subsystems: witness_*, refinery_*, hooks_*
+		return strings.HasPrefix(subsystem, "witness_") ||
+			strings.HasPrefix(subsystem, "refinery_") ||
+			strings.HasPrefix(subsystem, "hooks_")
+	}
+}
+
+// renderActionControls renders the available action buttons for a subsystem.
+func renderActionControls(sub SubsystemHealth) []string {
+	var controls []string
+
+	// Determine which actions are available based on current state
+	isRunning := sub.Status == SubsystemHealthy
+	isStopped := sub.Status == SubsystemError || sub.Status == SubsystemUnknown
+
+	// Start button (show if stopped or unknown)
+	if isStopped {
+		controls = append(controls, fmt.Sprintf("  [b] %s", operatorActionStyle.Render("Start")))
+	} else {
+		controls = append(controls, mutedStyle.Render("  [b] Start (already running)"))
+	}
+
+	// Stop button (show if running)
+	if isRunning {
+		controls = append(controls, fmt.Sprintf("  [s] %s", operatorWarningStyle.Render("Stop")))
+	} else {
+		controls = append(controls, mutedStyle.Render("  [s] Stop (already stopped)"))
+	}
+
+	// Restart button (always available, but with confirmation)
+	controls = append(controls, fmt.Sprintf("  [r] %s", operatorActionStyle.Render("Restart")))
+
+	return controls
 }
 
 // RenderOperatorEmptyState renders the empty/healthy state for operator section.
