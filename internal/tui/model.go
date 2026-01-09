@@ -107,6 +107,9 @@ type Model struct {
 	agentDashboard *AgentDashboard
 	showAgentDashboard bool // True when agent dashboard view is active
 
+	// Agent detail dialog (shown when viewing individual agent details)
+	agentDetailDialog *AgentDetailDialog
+
 	// Town map view (interactive rig tiles)
 	townMapView  *TownMapView
 	showTownMap  bool // True when town map view is active
@@ -635,6 +638,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleRigSettingsFormKey(msg)
 	}
 
+	// Handle agent detail dialog
+	if m.agentDetailDialog != nil {
+		return m.handleAgentDetailKey(msg)
+	}
+
 	// Handle town map view navigation
 	if m.showTownMap {
 		return m.handleTownMapKey(msg)
@@ -1122,6 +1130,51 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Message: "Restart session for '" + m.selectedAgent + "'? This stops and starts the agent. (y/n)",
 			Action:  ActionRestartSession,
 			Target:  m.selectedAgent,
+		}
+		return m, nil
+
+	case "enter":
+		// Open agent detail dialog (only in Agents section)
+		if m.sidebar.Section == SectionAgents {
+			if m.selectedAgent == "" {
+				m.setStatus("No agent selected. Use j/k to select an agent.", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			// Find the selected agent entry
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Agents) {
+				m.setStatus("Invalid agent selection", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			agentItem := m.sidebar.Agents[m.sidebar.Selection]
+			// Parse rig name from agent address (format: rig/role/name or rig/name)
+			rigName := parseRigFromAgentAddress(agentItem.a.Address)
+			// Create AgentEntry from the sidebar agent item
+			entry := AgentEntry{
+				Agent:       agentItem.a,
+				RigName:     rigName,
+				MailUnread:  agentItem.a.UnreadMail,
+			}
+			// Determine health status
+			if !agentItem.a.Running {
+				entry.HealthStatus = AgentStopped
+			} else if agentItem.a.HasWork {
+				if !agentItem.a.HookedAt.IsZero() {
+					entry.WorkAge = since(agentItem.a.HookedAt)
+					if entry.WorkAge > 2*time.Hour {
+						entry.HealthStatus = AgentStale
+					} else {
+						entry.HealthStatus = AgentHealthy
+					}
+				} else {
+					entry.HealthStatus = AgentHealthy
+				}
+			} else if agentItem.a.UnreadMail > 0 {
+				entry.HealthStatus = AgentStale
+			} else {
+				entry.HealthStatus = AgentIdle
+			}
+			m.agentDetailDialog = NewAgentDetailDialog(entry)
+			return m, nil
 		}
 		return m, nil
 
@@ -2605,6 +2658,155 @@ func (m Model) handleAttachKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// handleAgentDetailKey handles keyboard input when the agent detail dialog is shown.
+func (m Model) handleAgentDetailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	dialog := m.agentDetailDialog
+
+	switch msg.String() {
+	case "esc", "q":
+		// Close dialog
+		m.agentDetailDialog = nil
+		return m, nil
+
+	case "j", "down":
+		dialog.SelectNext()
+		return m, nil
+
+	case "k", "up":
+		dialog.SelectPrev()
+		return m, nil
+
+	case "enter":
+		// Execute selected action
+		actionType, target := dialog.ExecuteAction(dialog.SelectedAction)
+		m.agentDetailDialog = nil
+
+		switch actionType {
+		case ActionPresetNudge:
+			// Show preset nudge menu
+			m.presetNudgeMenu = &PresetNudgeMenu{
+				Target:    target,
+				Selection: 0,
+			}
+			return m, nil
+
+		case ActionOpenSession:
+			return m, m.actionCmd(actionType, target)
+
+		case ActionMailAgent:
+			// Open input dialog for mail
+			m.inputDialog = &InputDialog{
+				Title:       "Send Mail",
+				Prompt:      "Subject: ",
+				Action:      actionType,
+				Target:      target,
+				Input:       "",
+				ExtraPrompt: "Message: ",
+				Field:       0,
+			}
+			return m, nil
+
+		case ActionHandoff:
+			// Handoff requires confirmation for running agents
+			m.confirmDialog = &ConfirmDialog{
+				Title:    "Handoff Work",
+				Message:  fmt.Sprintf("Handoff work for %s?\nThis will create a fresh session for the agent.", target),
+				Action:   actionType,
+				Target:   target,
+			}
+			return m, nil
+
+		case ActionStopAgent:
+			// Stop requires confirmation
+			m.confirmDialog = &ConfirmDialog{
+				Title:    "Stop Agent",
+				Message:  fmt.Sprintf("Stop agent %s?\nThis will terminate the agent's session.", target),
+				Action:   actionType,
+				Target:   target,
+			}
+			return m, nil
+
+		case ActionStartSession:
+			return m, m.actionCmd(actionType, target)
+
+		default:
+			return m, m.actionCmd(actionType, target)
+		}
+
+	case "n":
+		// Quick nudge - show preset nudge menu
+		target := dialog.Agent.Address
+		m.agentDetailDialog = nil
+		m.presetNudgeMenu = &PresetNudgeMenu{
+			Target:    target,
+			Selection: 0,
+		}
+		return m, nil
+
+	case "a":
+		// Quick attach
+		actionType, target := dialog.ExecuteAction(1) // Index 1 = attach
+		m.agentDetailDialog = nil
+		return m, m.actionCmd(actionType, target)
+
+	case "m":
+		// Quick mail
+		actionType, target := dialog.ExecuteAction(2) // Index 2 = mail
+		m.agentDetailDialog = nil
+		m.inputDialog = &InputDialog{
+			Title:       "Send Mail",
+			Prompt:      "Subject: ",
+			Action:      actionType,
+			Target:      target,
+			Input:       "",
+			ExtraPrompt: "Message: ",
+			Field:       0,
+		}
+		return m, nil
+
+	case "h":
+		// Quick handoff (only if running)
+		if dialog.Agent.Running {
+			actionType, target := dialog.ExecuteAction(3) // Index 3 = handoff
+			m.agentDetailDialog = nil
+			m.confirmDialog = &ConfirmDialog{
+				Title:    "Handoff Work",
+				Message:  fmt.Sprintf("Handoff work for %s?", target),
+				Action:   actionType,
+				Target:   target,
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case "s":
+		// Quick stop (only if running)
+		if dialog.Agent.Running {
+			actionType, target := dialog.ExecuteAction(4) // Index 4 = stop
+			m.agentDetailDialog = nil
+			m.confirmDialog = &ConfirmDialog{
+				Title:    "Stop Agent",
+				Message:  fmt.Sprintf("Stop agent %s?", target),
+				Action:   actionType,
+				Target:   target,
+			}
+			return m, nil
+		}
+		return m, nil
+
+	case "t":
+		// Quick start (only if not running)
+		if !dialog.Agent.Running {
+			actionType, target := dialog.ExecuteAction(3) // Index 3 = start
+			m.agentDetailDialog = nil
+			return m, m.actionCmd(actionType, target)
+		}
+		return m, nil
+	}
+
+	return m, nil
+}
+
 // handleTownMapKey handles keyboard input when in town map view.
 func (m Model) handleTownMapKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Update town map view with current snapshot
@@ -3273,6 +3475,11 @@ func (m Model) View() string {
 
 	if m.refileDialog != nil {
 		return m.renderRefileDialog()
+	}
+
+	// Show agent detail dialog if active
+	if m.agentDetailDialog != nil {
+		return m.agentDetailDialog.Render(m.width, m.height)
 	}
 
 	// Show town map view if active
