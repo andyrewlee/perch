@@ -66,6 +66,7 @@ const (
 	ActionMQRetry         // Retry a failed merge request
 	ActionMQViewDetails   // View detailed MR status (blockers, conflicts)
 	ActionMQOpenLogs      // Open logs for an MR
+	ActionViewMRLogs      // View refinery logs for an MR
 
 	// Dependency management
 	ActionManageDeps     // Open dependency management dialog
@@ -474,6 +475,12 @@ func (r *ActionRunner) MQViewDetails(ctx context.Context, mrID, rig string) erro
 // Runs: gt logs --mr <mr-id>
 func (r *ActionRunner) MQOpenLogs(ctx context.Context, mrID string) error {
 	return r.runCommand(ctx, "gt", "logs", "--mr", mrID)
+}
+
+// ViewMRLogs opens refinery logs for a rig.
+// Runs: gt log --agent <rig>/refinery -f
+func (r *ActionRunner) ViewMRLogs(ctx context.Context, rig string) error {
+	return r.runCommand(ctx, "gt", "log", "--agent", rig+"/refinery", "-f")
 }
 
 // runCommand executes a shell command and returns any error.

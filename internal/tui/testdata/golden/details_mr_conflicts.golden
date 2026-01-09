@@ -7,15 +7,15 @@
 │ ID:       mr-001                             │
 │ Rig:      perch                              │
 │ Title:    Add auth feature                   │
-│ Status:   pending                            │
+│                                              │
+│ Status                                       │
+│ State:    [pending]                          │
 │ Worker:   able                               │
 │ Branch:   feat/auth                          │
 │ Priority: P1                                 │
+│ Checked:  10m ago                            │
 │                                              │
-│ Issues                                       │
+│ Blockers                                     │
 │ ! Merge conflicts detected                   │
 │   src/auth.go: merge conflict                │
-│                                              │
-│ Resolution                                   │
-│ 1. Fetch latest main: git fetch origin main  │
 ╰──────────────────────────────────────────────╯
