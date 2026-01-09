@@ -2,7 +2,7 @@
 │ Identity                           │
 │   (empty)                          │
 │ Rigs                               │
-│   (empty)                          │
+│   (no rigs)                        │
 │ Convoys [A] (Batched work)         │
 │ > Feature: Auth system             │
 │   Bug: Fix memory leak             │

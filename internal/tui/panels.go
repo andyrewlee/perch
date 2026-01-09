@@ -26,8 +26,8 @@ const (
 	SectionPlugins
 	SectionAlerts
 	SectionErrors
-	SectionBeads // Beads browser (issues)
-	SectionOperator // Operator console (system health)
+	SectionBeads    // Beads browser (issues)
+	SectionOperator // Operator console (subsystem health)
 )
 
 // SectionCount is the total number of sidebar sections
@@ -449,6 +449,10 @@ type SidebarState struct {
 	Plugins         []pluginItem
 	Alerts          []alertItem // Load errors with actionable details
 	Beads           []beadItem  // Beads browser items (filtered by scope)
+	Operator        []operatorItem // Operator console items (subsystem health)
+
+	// Operator console state
+	OperatorState *OperatorState
 
 	// Activity feed state
 	Activity *activityState // Chronological feed of key events
@@ -489,15 +493,11 @@ type SidebarState struct {
 	BeadsLoadSuggestedAction string   // Suggested action to fix the load error
 	BeadsLoading           bool      // True during initial load
 	BeadsTotalCount        int       // Total issues before filtering (to detect filtered state)
-
-	// Operator console
-	OperatorState *OperatorState
-	Operator      []operatorItem
 	// Loading/error state for mail panel
-	MailLastRefresh   time.Time // Last successful mail data refresh
-	MailLoadError     error     // Error from last mail load attempt (nil if successful)
-	MailLoading       bool      // True during initial load
-	MailUnreadCount   int       // Unread count from gt status (preserved when mail load fails)
+	MailLastRefresh time.Time // Last successful mail data refresh
+	MailLoadError   error     // Error from last mail load attempt (nil if successful)
+	MailLoading     bool      // True during initial load
+	MailUnreadCount int       // Unread count from gt status (preserved when mail load fails)
 
 	// Mail filters
 	MailRigFilter     string // Filter by rig name (empty = show all)
@@ -894,29 +894,14 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	}
 
 	if mailLoadedOK {
-		// Mail loaded successfully - update the list (with filtering)
-		s.Mail = nil
-		for _, m := range snap.Mail {
-			// Apply rig filter
-			if s.MailRigFilter != "" && m.Rig != s.MailRigFilter {
-				continue
-			}
-			// Apply role filter
-			if s.MailRoleFilter != "" && m.Role != s.MailRoleFilter {
-				continue
-			}
-			// Apply unread filter
-			if s.MailUnreadOnly && m.Read {
-				continue
-			}
-			s.Mail = append(s.Mail, mailItem{m})
+		// Mail loaded successfully - update the list
+		s.Mail = make([]mailItem, len(snap.Mail))
+		for i, m := range snap.Mail {
+			s.Mail[i] = mailItem{m}
 		}
 		s.MailLastRefresh = snap.LoadedAt
 		s.MailLoadError = nil
 		s.MailLoading = false
-
-		// Update filter active state
-		s.MailFilterActive = s.MailRigFilter != "" || s.MailRoleFilter != "" || s.MailUnreadOnly
 	}
 
 	// Update lifecycle events (with filtering)
@@ -1088,6 +1073,12 @@ func (s *SidebarState) CurrentItems() []SelectableItem {
 			items[i] = b
 		}
 		return items
+	case SectionOperator:
+		items := make([]SelectableItem, len(s.Operator))
+		for i, o := range s.Operator {
+			items[i] = o
+		}
+		return items
 	}
 	return nil
 }
@@ -1175,7 +1166,7 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 	var sections []string
 
 	// Render each section
-	for sec := SectionIdentity; sec <= SectionBeads; sec++ {
+	for sec := SectionIdentity; sec <= SectionOperator; sec++ {
 		// Skip SectionErrors (it's an alias for Alerts)
 		if sec == SectionErrors {
 			continue
@@ -1235,7 +1226,10 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		items := getSectionItems(state, sec)
 
 		var list string
-		if sec == SectionMergeQueue {
+		if sec == SectionRigs {
+			// Special handling for rigs section: separate system from project rigs
+			list = renderRigsList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionMergeQueue {
 			// Special handling for merge queue with loading/error states
 			list = renderMergeQueueList(state, snap, opts, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAgents {
@@ -1244,16 +1238,18 @@ func RenderSidebar(state *SidebarState, snap *data.Snapshot, width, height int, 
 		} else if sec == SectionConvoys {
 			// Special handling for convoys section with loading/error states
 			list = renderConvoysList(state, snap, items, isActive, innerWidth, sectionHeight)
-		} else if sec == SectionMail {
-			// Special handling for mail section with loading/error states
-			list = renderMailList(state, items, isActive, innerWidth, sectionHeight)
 		} else if sec == SectionAlerts && len(items) == 0 {
 			// Special empty state for alerts
 			list = renderAlertsEmptyState(isActive)
-		} else if sec == SectionBeads && len(items) == 0 {
-			// Special empty state for beads
-			hasError := state.BeadsLoadError != nil
-			list = renderBeadsEmptyState(state, isActive, hasError)
+		} else if sec == SectionBeads {
+			// Special handling for beads section with loading/error states
+			list = renderBeadsList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionOperator {
+			// Special rendering for operator console
+			list = renderOperatorList(state, items, isActive, innerWidth, sectionHeight)
+		} else if sec == SectionMail {
+			// Special handling for mail section with loading/error states
+			list = renderMailList(state, items, isActive, innerWidth, sectionHeight)
 		} else {
 			list = renderItemList(items, state.Selection, isActive, innerWidth, sectionHeight)
 		}
@@ -1389,6 +1385,12 @@ func getSectionItems(state *SidebarState, sec SidebarSection) []SelectableItem {
 			items[i] = b
 		}
 		return items
+	case SectionOperator:
+		items := make([]SelectableItem, len(state.Operator))
+		for i, o := range state.Operator {
+			items[i] = o
+		}
+		return items
 	}
 	return nil
 }
@@ -1435,7 +1437,7 @@ func renderMQEmptyState(snap *data.Snapshot, opts *SidebarOptions, isActive bool
 
 	// Last merge time (if available)
 	if opts != nil && !opts.LastMergeTime.IsZero() {
-		ago := formatDuration(since(opts.LastMergeTime))
+		ago := formatDuration(time.Since(opts.LastMergeTime))
 		lines = append(lines, mutedStyle.Render("  Last merge: "+ago+" ago"))
 	}
 
@@ -1476,6 +1478,126 @@ func renderItemList(items []SelectableItem, selection int, isActiveSection bool,
 			lines = append(lines, selectedItemStyle.Render("> "+label))
 		} else {
 			lines = append(lines, itemStyle.Render("  "+label))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderRigsList renders the rigs list, separating system rigs from project rigs.
+// System rigs are infrastructure (like the tools/workspace itself), while project
+// rigs are user work. Shows explanatory text for each group.
+func renderRigsList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	if len(items) == 0 {
+		return mutedStyle.Render("  (no rigs)")
+	}
+
+	// Separate system rigs from project rigs
+	var systemRigs, projectRigs []rigItem
+	for _, item := range items {
+		if rig, ok := item.(rigItem); ok {
+			if rig.r.IsSystem {
+				systemRigs = append(systemRigs, rig)
+			} else {
+				projectRigs = append(projectRigs, rig)
+			}
+		}
+	}
+
+	var lines []string
+	linesAdded := 0
+	maxLabelLen := width - 4 // Account for "  " or "> " prefix
+	if maxLabelLen < 6 {
+		maxLabelLen = 6 // Minimum: 3 chars + "..."
+	}
+
+	// Render system rigs section first (if any)
+	if len(systemRigs) > 0 {
+		// Section header
+		lines = append(lines, mutedStyle.Render("  System:"))
+		linesAdded++
+
+		for _, rig := range systemRigs {
+			if linesAdded >= maxLines {
+				break
+			}
+
+			// Find the index in the original items list for selection tracking
+			originalIndex := 0
+			for j, originalItem := range items {
+				if originalItem.ID() == rig.ID() {
+					originalIndex = j
+					break
+				}
+			}
+
+			label := rig.Label()
+			if len(label) > maxLabelLen {
+				truncateAt := maxLabelLen - 3
+				if truncateAt < 3 {
+					truncateAt = 3
+				}
+				label = label[:truncateAt] + "..."
+			}
+
+			if isActiveSection && state.Selection == originalIndex {
+				lines = append(lines, selectedItemStyle.Render("> "+label))
+			} else {
+				lines = append(lines, itemStyle.Render("  "+label))
+			}
+			linesAdded++
+		}
+
+		// Explanatory text for system rigs
+		if linesAdded < maxLines {
+			lines = append(lines, mutedStyle.Render("  ─ infrastructure"))
+			linesAdded++
+		}
+
+		// Add spacing between sections if we have project rigs too
+		if len(projectRigs) > 0 && linesAdded < maxLines {
+			lines = append(lines, "")
+			linesAdded++
+		}
+	}
+
+	// Render project rigs section
+	if len(projectRigs) > 0 && linesAdded < maxLines {
+		// Only show section header if we also have system rigs
+		if len(systemRigs) > 0 {
+			lines = append(lines, mutedStyle.Render("  Projects:"))
+			linesAdded++
+		}
+
+		for _, rig := range projectRigs {
+			if linesAdded >= maxLines {
+				break
+			}
+
+			// Find the index in the original items list for selection tracking
+			originalIndex := 0
+			for j, originalItem := range items {
+				if originalItem.ID() == rig.ID() {
+					originalIndex = j
+					break
+				}
+			}
+
+			label := rig.Label()
+			if len(label) > maxLabelLen {
+				truncateAt := maxLabelLen - 3
+				if truncateAt < 3 {
+					truncateAt = 3
+				}
+				label = label[:truncateAt] + "..."
+			}
+
+			if isActiveSection && state.Selection == originalIndex {
+				lines = append(lines, selectedItemStyle.Render("> "+label))
+			} else {
+				lines = append(lines, itemStyle.Render("  "+label))
+			}
+			linesAdded++
 		}
 	}
 
@@ -1682,7 +1804,7 @@ func servicesAppearStopped(snap *data.Snapshot) bool {
 		}
 		// If no recent deacon heartbeat (> 5 minutes), consider stopped
 		if !snap.OperationalState.LastDeaconHeartbeat.IsZero() {
-			if since(snap.OperationalState.LastDeaconHeartbeat) > 5*time.Minute {
+			if time.Since(snap.OperationalState.LastDeaconHeartbeat) > 5*time.Minute {
 				return true
 			}
 		}
@@ -1854,22 +1976,6 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 		}
 	}
 
-	// Show filter indicator if any filter is active
-	if state.MailFilterActive {
-		filterParts := []string{}
-		if state.MailRigFilter != "" {
-			filterParts = append(filterParts, "rig:"+state.MailRigFilter)
-		}
-		if state.MailRoleFilter != "" {
-			filterParts = append(filterParts, "role:"+state.MailRoleFilter)
-		}
-		if state.MailUnreadOnly {
-			filterParts = append(filterParts, "unread")
-		}
-		filterLine := mutedStyle.Render("  Filter: " + strings.Join(filterParts, ", "))
-		lines = append(lines, filterLine)
-	}
-
 	// Show last-known mail (or empty state if none)
 	if len(items) == 0 {
 		if state.MailLoadError != nil {
@@ -1882,7 +1988,7 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 			// Mail loaded OK but empty, yet gt status reports unread mail
 			// This is the bug case: deacon healthy, unread > 0, but inbox empty
 			lines = append(lines, attentionStyle.Render(fmt.Sprintf("  %d unread (loading issue)", state.MailUnreadCount)))
-			lines = append(lines, mutedStyle.Render("  Try: gt mail town"))
+			lines = append(lines, mutedStyle.Render("  Try: gt mail inbox"))
 			if isActiveSection {
 				lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
 			}
@@ -1899,43 +2005,10 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 		remainingLines = 1
 	}
 
-	// Render mail items with timeline grouping
-	now := time.Now()
-	today := now.Format("2006-01-02")
-	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
-	thisWeekStart := now.AddDate(0, 0, -int(now.Weekday()))
-
-	var lastGroup string
+	// Render mail items
 	for i, item := range items {
 		if len(lines) >= maxLines {
 			break
-		}
-
-		mail, ok := item.(mailItem)
-		if !ok {
-			continue
-		}
-
-		// Determine timeline group
-		mailDate := mail.m.Timestamp.Format("2006-01-02")
-		group := ""
-		if mailDate == today {
-			group = "Today"
-		} else if mailDate == yesterday {
-			group = "Yesterday"
-		} else if mail.m.Timestamp.After(thisWeekStart) {
-			group = "This Week"
-		} else {
-			group = mail.m.Timestamp.Format("Jan 2")
-		}
-
-		// Add group header if changed
-		if group != lastGroup {
-			if lastGroup != "" {
-				lines = append(lines, mutedStyle.Render("  ─"+strings.Repeat("─", len(group))))
-			}
-			lines = append(lines, headerStyle.Render("  "+group))
-			lastGroup = group
 		}
 
 		label := item.Label()
@@ -2029,8 +2102,10 @@ func renderBeadsList(state *SidebarState, items []SelectableItem, isActiveSectio
 }
 
 // renderBeadsEmptyState renders the empty state for the beads section.
+// hasError indicates if we're showing this after an error banner.
 func renderBeadsEmptyState(state *SidebarState, isActive bool, hasError bool) string {
 	var lines []string
+
 	scopeLabel := "rig"
 	if state.BeadsScope == BeadsScopeTown {
 		scopeLabel = "town"
@@ -2066,6 +2141,22 @@ func renderBeadsEmptyState(state *SidebarState, isActive bool, hasError bool) st
 		lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderOperatorList renders the operator console sidebar list.
+func renderOperatorList(state *SidebarState, items []SelectableItem, isActiveSection bool, width, maxLines int) string {
+	// Check for healthy state with no issues
+	if state.OperatorState != nil && !state.OperatorState.HasIssues && len(items) == 0 {
+		return RenderOperatorEmptyState(state.OperatorState, isActiveSection)
+	}
+
+	// If no operator state yet, show loading
+	if state.OperatorState == nil || len(items) == 0 {
+		return mutedStyle.Render("  Loading...")
+	}
+
+	// Render operator items using the specialized function
+	return RenderOperatorSection(state.OperatorState, state.Selection, isActiveSection, width, maxLines)
 }
 
 // AuditTimelineState holds the audit timeline data for the selected agent.
@@ -2225,7 +2316,7 @@ func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string
 		if lastSuccess, ok := snap.LastSuccess[e.Source]; ok {
 			lines = append(lines, headerStyle.Render("Last Successful Load"))
 			lines = append(lines, fmt.Sprintf("Time:      %s", lastSuccess.Format("2006-01-02 15:04:05")))
-			lines = append(lines, fmt.Sprintf("Ago:       %s", formatDuration(since(lastSuccess))))
+			lines = append(lines, fmt.Sprintf("Ago:       %s", formatDuration(time.Since(lastSuccess))))
 			lines = append(lines, "")
 		}
 	}
@@ -2579,50 +2670,15 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 	lines = append(lines, fmt.Sprintf("ID:       %s", mr.ID))
 	lines = append(lines, fmt.Sprintf("Rig:      %s", rig))
 	lines = append(lines, fmt.Sprintf("Title:    %s", mr.Title))
-
-	// Per-MR status section with badges
-	lines = append(lines, "")
-	lines = append(lines, headerStyle.Render("Status"))
-
-	// Status badge based on MR state
-	statusBadge := "pending"
-	switch mr.Status {
-	case "processing":
-		statusBadge = mrTestsRunningStyle.Render("[processing]")
-	case "claimed":
-		statusBadge = mrClaimedStyle.Render("[claimed]")
-	case "failed":
-		statusBadge = mrConflictStyle.Render("[failed]")
-	case "ready":
-		statusBadge = queueReadyStyle.Render("[ready]")
-	default:
-		statusBadge = mutedStyle.Render("[" + mr.Status + "]")
-	}
-	lines = append(lines, fmt.Sprintf("State:    %s", statusBadge))
-
-	// Worker assignment with claimed status
-	if mr.Worker != "" {
-		workerInfo := mr.Worker
-		if mr.Status == "claimed" {
-			workerInfo = mrClaimedStyle.Render(mr.Worker + " (assigned)")
-		} else if mr.Status == "processing" {
-			workerInfo = mrTestsRunningStyle.Render(mr.Worker + " (running tests)")
-		}
-		lines = append(lines, fmt.Sprintf("Worker:   %s", workerInfo))
-	}
-
+	lines = append(lines, fmt.Sprintf("Status:   %s", mr.Status))
+	lines = append(lines, fmt.Sprintf("Worker:   %s", mr.Worker))
 	lines = append(lines, fmt.Sprintf("Branch:   %s", mr.Branch))
 	lines = append(lines, fmt.Sprintf("Priority: P%d", mr.Priority))
-
-	// Last checked timestamp
-	if mr.LastChecked != "" {
-		lines = append(lines, fmt.Sprintf("Checked:  %s", mutedStyle.Render(mr.LastChecked)))
-	}
 
 	// Conflict/Rebase status section
 	if mr.HasConflicts || mr.NeedsRebase {
 		lines = append(lines, "")
-		lines = append(lines, headerStyle.Render("Blockers"))
+		lines = append(lines, headerStyle.Render("Issues"))
 
 		if mr.HasConflicts {
 			lines = append(lines, conflictStyle.Render("! Merge conflicts detected"))
@@ -2634,43 +2690,33 @@ func renderMRDetails(mr data.MergeRequest, rig string, width int) string {
 		if mr.NeedsRebase {
 			lines = append(lines, rebaseStyle.Render("~ Branch needs rebase"))
 		}
-	}
 
-	// Actions panel - available controls
-	lines = append(lines, "")
-	lines = append(lines, headerStyle.Render("Actions"))
-
-	// Show available actions based on MR state
-	actions := []string{}
-	if mr.HasConflicts || mr.NeedsRebase {
-		actions = append(actions, "n: nudge polecat")
-	}
-	actions = append(actions, "o: view refinery logs")
-	if mr.HasConflicts || mr.NeedsRebase {
-		actions = append(actions, "v: view blockers")
-	}
-
-	for _, action := range actions {
-		lines = append(lines, mrActionHintStyle.Render("  "+action))
-	}
-
-	// Resolution guidance (only if conflicts/rebase needed)
-	if mr.HasConflicts || mr.NeedsRebase {
+		// Guidance section
 		lines = append(lines, "")
-		lines = append(lines, headerStyle.Render("Resolution Steps"))
+		lines = append(lines, headerStyle.Render("Resolution"))
 		if mr.HasConflicts {
-			lines = append(lines, mutedStyle.Render("  1. git fetch origin main"))
-			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  2. git checkout %s", mr.Branch)))
-			lines = append(lines, mutedStyle.Render("  3. git rebase origin/main"))
-			lines = append(lines, mutedStyle.Render("  4. Fix conflicts in each file"))
-			lines = append(lines, mutedStyle.Render("  5. git add <files>"))
-			lines = append(lines, mutedStyle.Render("  6. git rebase --continue"))
-			lines = append(lines, mutedStyle.Render("  7. git push --force-with-lease"))
+			lines = append(lines, "1. Fetch latest main: git fetch origin main")
+			lines = append(lines, fmt.Sprintf("2. Checkout branch:   git checkout %s", mr.Branch))
+			lines = append(lines, "3. Rebase on main:    git rebase origin/main")
+			lines = append(lines, "4. Fix conflicts in each file")
+			lines = append(lines, "5. Stage fixes:       git add <files>")
+			lines = append(lines, "6. Continue rebase:   git rebase --continue")
+			lines = append(lines, "7. Force push:        git push --force-with-lease")
 		} else if mr.NeedsRebase {
-			lines = append(lines, mutedStyle.Render("  1. git fetch origin main"))
-			lines = append(lines, mutedStyle.Render(fmt.Sprintf("  2. git checkout %s", mr.Branch)))
-			lines = append(lines, mutedStyle.Render("  3. git rebase origin/main"))
-			lines = append(lines, mutedStyle.Render("  4. git push --force-with-lease"))
+			lines = append(lines, "1. Fetch latest main: git fetch origin main")
+			lines = append(lines, fmt.Sprintf("2. Checkout branch:   git checkout %s", mr.Branch))
+			lines = append(lines, "3. Rebase on main:    git rebase origin/main")
+			lines = append(lines, "4. Force push:        git push --force-with-lease")
+		}
+
+		// Action hint
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle.Render("Press 'n' to nudge polecat to resolve"))
+	} else {
+		// Show last checked if available
+		if mr.LastChecked != "" {
+			lines = append(lines, "")
+			lines = append(lines, mutedStyle.Render(fmt.Sprintf("Checked: %s", mr.LastChecked)))
 		}
 	}
 
@@ -2773,7 +2819,7 @@ func formatAge(t time.Time) string {
 	if t.IsZero() {
 		return "unknown"
 	}
-	d := since(t)
+	d := time.Since(t)
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
@@ -2852,7 +2898,7 @@ func renderAuditTimeline(audit *AuditTimelineState, width int) string {
 
 // formatRelativeTime formats a timestamp as relative time (e.g., "2m ago", "1h ago", "Jan 2").
 func formatRelativeTime(t time.Time) string {
-	since := since(t)
+	since := time.Since(t)
 	switch {
 	case since < time.Minute:
 		return "now"

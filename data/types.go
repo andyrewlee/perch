@@ -65,6 +65,7 @@ type Rig struct {
 	Hooks        []Hook   `json:"hooks"`
 	Agents       []Agent  `json:"agents"`
 	ActiveHooks  int      `json:"active_hooks"` // Computed from hooked issues for this rig
+	IsSystem     bool     `json:"is_system"`    // System rigs are infrastructure, not user projects
 }
 
 // Hook represents work hooked to an agent.
@@ -244,8 +245,8 @@ type IssueComments struct {
 	LastLoadedAt time.Time
 }
 
-// MailMessage represents a mail message in the unified town inbox.
-// Loaded via: gt mail town --json
+// MailMessage represents a mail message in the inbox.
+// Loaded via: gt mail inbox --json
 type MailMessage struct {
 	ID        string    `json:"id"`
 	From      string    `json:"from"`
@@ -257,8 +258,6 @@ type MailMessage struct {
 	Priority  string    `json:"priority"`
 	Type      string    `json:"type"`
 	ThreadID  string    `json:"thread_id"`
-	Rig       string    `json:"rig"`  // Rig name (e.g., "perch")
-	Role      string    `json:"role"` // Role (witness, refinery, polecat, crew)
 }
 
 // LifecycleEventType represents the type of lifecycle event.

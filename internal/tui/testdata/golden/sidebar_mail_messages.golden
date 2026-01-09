@@ -2,7 +2,7 @@
 │ Identity                           │
 │   (empty)                          │
 │ Rigs                               │
-│   (empty)                          │
+│   (no rigs)                        │
 │ Convoys [A]                        │
 │   Loading convoys...               │
 │ Merge Queue                        │
@@ -10,8 +10,8 @@
 │ Agents                             │
 │   Loading agents...                │
 │ Mail (2) (Messages)                │
-│   Today                            │
 │ > ● [MR] New work assigned         │
+│   ○ [OK] Merge complete            │
 │ Lifecycle                          │
 │   (empty)                          │
 │ Worktrees                          │
