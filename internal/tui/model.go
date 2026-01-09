@@ -3667,6 +3667,16 @@ func (m Model) buildOverviewContent() string {
 	s := town.Summary
 	statsLine := fmt.Sprintf("%d rigs  %d polecats  %d crews  %d hooks active",
 		s.RigCount, s.PolecatCount, s.CrewCount, s.ActiveHooks)
+	// Add last refresh timestamp
+	if !m.lastRefresh.IsZero() {
+		refreshStr := m.lastRefresh.Format("15:04:05")
+		statsLine += fmt.Sprintf(" · updated %s", refreshStr)
+	}
+	// Show "data paused" when services are stopped
+	servicesDown := m.snapshot.OperationalState != nil && !m.snapshot.OperationalState.WatchdogHealthy
+	if servicesDown {
+		statsLine += " · data paused"
+	}
 	// Add stale marker if hooks count is unreliable (hooked issues failed to load)
 	// Note: When watchdog is down but hooked issues loaded successfully, the count
 	// is accurate (from beads DB), so we don't mark it as stale.
