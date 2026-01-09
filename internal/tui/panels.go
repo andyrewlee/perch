@@ -490,6 +490,13 @@ type SidebarState struct {
 	MailLoading       bool      // True during initial load
 	MailUnreadCount   int       // Unread count from gt status (preserved when mail load fails)
 
+	// Mail filters
+	MailRigFilter     string // Filter by rig name (empty = show all)
+	MailRoleFilter    string // Filter by role (witness, refinery, polecat, crew)
+	MailUnreadOnly    bool   // Show only unread messages
+	MailFilterActive  bool   // True if any non-default filter is set
+	MailBulkAction    string // Pending bulk action ("mark-read", "archive")
+
 	// LastSuccess tracks the last successful refresh time
 	LastSuccess time.Time
 }
@@ -878,14 +885,29 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	}
 
 	if mailLoadedOK {
-		// Mail loaded successfully - update the list
-		s.Mail = make([]mailItem, len(snap.Mail))
-		for i, m := range snap.Mail {
-			s.Mail[i] = mailItem{m}
+		// Mail loaded successfully - update the list (with filtering)
+		s.Mail = nil
+		for _, m := range snap.Mail {
+			// Apply rig filter
+			if s.MailRigFilter != "" && m.Rig != s.MailRigFilter {
+				continue
+			}
+			// Apply role filter
+			if s.MailRoleFilter != "" && m.Role != s.MailRoleFilter {
+				continue
+			}
+			// Apply unread filter
+			if s.MailUnreadOnly && m.Read {
+				continue
+			}
+			s.Mail = append(s.Mail, mailItem{m})
 		}
 		s.MailLastRefresh = snap.LoadedAt
 		s.MailLoadError = nil
 		s.MailLoading = false
+
+		// Update filter active state
+		s.MailFilterActive = s.MailRigFilter != "" || s.MailRoleFilter != "" || s.MailUnreadOnly
 	}
 
 	// Update lifecycle events (with filtering)
@@ -1820,6 +1842,22 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 		}
 	}
 
+	// Show filter indicator if any filter is active
+	if state.MailFilterActive {
+		filterParts := []string{}
+		if state.MailRigFilter != "" {
+			filterParts = append(filterParts, "rig:"+state.MailRigFilter)
+		}
+		if state.MailRoleFilter != "" {
+			filterParts = append(filterParts, "role:"+state.MailRoleFilter)
+		}
+		if state.MailUnreadOnly {
+			filterParts = append(filterParts, "unread")
+		}
+		filterLine := mutedStyle.Render("  Filter: " + strings.Join(filterParts, ", "))
+		lines = append(lines, filterLine)
+	}
+
 	// Show last-known mail (or empty state if none)
 	if len(items) == 0 {
 		if state.MailLoadError != nil {
@@ -1832,7 +1870,7 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 			// Mail loaded OK but empty, yet gt status reports unread mail
 			// This is the bug case: deacon healthy, unread > 0, but inbox empty
 			lines = append(lines, attentionStyle.Render(fmt.Sprintf("  %d unread (loading issue)", state.MailUnreadCount)))
-			lines = append(lines, mutedStyle.Render("  Try: gt mail inbox"))
+			lines = append(lines, mutedStyle.Render("  Try: gt mail town"))
 			if isActiveSection {
 				lines = append(lines, mutedStyle.Render("  Press 'r' to refresh"))
 			}
@@ -1849,10 +1887,43 @@ func renderMailList(state *SidebarState, items []SelectableItem, isActiveSection
 		remainingLines = 1
 	}
 
-	// Render mail items
+	// Render mail items with timeline grouping
+	now := time.Now()
+	today := now.Format("2006-01-02")
+	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
+	thisWeekStart := now.AddDate(0, 0, -int(now.Weekday()))
+
+	var lastGroup string
 	for i, item := range items {
 		if len(lines) >= maxLines {
 			break
+		}
+
+		mail, ok := item.(mailItem)
+		if !ok {
+			continue
+		}
+
+		// Determine timeline group
+		mailDate := mail.m.Timestamp.Format("2006-01-02")
+		group := ""
+		if mailDate == today {
+			group = "Today"
+		} else if mailDate == yesterday {
+			group = "Yesterday"
+		} else if mail.m.Timestamp.After(thisWeekStart) {
+			group = "This Week"
+		} else {
+			group = mail.m.Timestamp.Format("Jan 2")
+		}
+
+		// Add group header if changed
+		if group != lastGroup {
+			if lastGroup != "" {
+				lines = append(lines, mutedStyle.Render("  ─"+strings.Repeat("─", len(group))))
+			}
+			lines = append(lines, headerStyle.Render("  "+group))
+			lastGroup = group
 		}
 
 		label := item.Label()

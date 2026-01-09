@@ -424,10 +424,34 @@ func (l *Loader) AddComment(ctx context.Context, issueID, comment string) error 
 	return err
 }
 
-// LoadMail loads mail messages from the inbox.
+// LoadMail loads mail messages from the unified town inbox.
+// This merges mayor and rig agent mail with optional filters.
 func (l *Loader) LoadMail(ctx context.Context) ([]MailMessage, error) {
+	return l.loadMailFiltered(ctx, "", "", false, 0)
+}
+
+// LoadMailFiltered loads mail with filters for rig, role, and/or unread status.
+func (l *Loader) LoadMailFiltered(ctx context.Context, rig, role string, unreadOnly bool, limit int) ([]MailMessage, error) {
+	return l.loadMailFiltered(ctx, rig, role, unreadOnly, limit)
+}
+
+// loadMailFiltered is the internal implementation for loading mail with filters.
+func (l *Loader) loadMailFiltered(ctx context.Context, rig, role string, unreadOnly bool, limit int) ([]MailMessage, error) {
+	args := []string{"gt", "mail", "town", "--json"}
+	if rig != "" {
+		args = append(args, "--rig", rig)
+	}
+	if role != "" {
+		args = append(args, "--role", role)
+	}
+	if unreadOnly {
+		args = append(args, "--unread")
+	}
+	if limit > 0 {
+		args = append(args, "--limit", fmt.Sprintf("%d", limit))
+	}
 	var mail []MailMessage
-	if err := l.execJSON(ctx, &mail, "gt", "mail", "inbox", "--json"); err != nil {
+	if err := l.execJSON(ctx, &mail, args...); err != nil {
 		return nil, fmt.Errorf("loading mail: %w", err)
 	}
 	return mail, nil

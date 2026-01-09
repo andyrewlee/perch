@@ -33,6 +33,8 @@ const (
 	ActionMarkMailUnread // Mark a mail message as unread
 	ActionAckMail        // Acknowledge a mail message
 	ActionReplyMail      // Quick reply to a mail message
+	ActionBulkMailRead   // Mark all visible mail as read
+	ActionBulkMailArchive // Archive all visible mail
 	ActionRemoveWorktree
 	ActionCreateWork   // Create issue and optionally sling to polecat
 	ActionSlingWork
@@ -222,6 +224,38 @@ func (r *ActionRunner) AckMail(ctx context.Context, mailID string) error {
 // Runs: gt mail reply <mail-id> -m "<message>"
 func (r *ActionRunner) ReplyMail(ctx context.Context, mailID, message string) error {
 	return r.runCommand(ctx, "gt", "mail", "reply", mailID, "-m", message)
+}
+
+// BulkMailRead marks all visible mail as read using the current filters.
+// Runs: gt mail town --mark-read [filters...]
+func (r *ActionRunner) BulkMailRead(ctx context.Context, rig, role string, unreadOnly bool) error {
+	args := []string{"gt", "mail", "town", "--mark-read"}
+	if rig != "" {
+		args = append(args, "--rig", rig)
+	}
+	if role != "" {
+		args = append(args, "--role", role)
+	}
+	if unreadOnly {
+		args = append(args, "--unread")
+	}
+	return r.runCommand(ctx, args...)
+}
+
+// BulkMailArchive archives all visible mail using the current filters.
+// Runs: gt mail town --archive [filters...]
+func (r *ActionRunner) BulkMailArchive(ctx context.Context, rig, role string, unreadOnly bool) error {
+	args := []string{"gt", "mail", "town", "--archive"}
+	if rig != "" {
+		args = append(args, "--rig", rig)
+	}
+	if role != "" {
+		args = append(args, "--role", role)
+	}
+	if unreadOnly {
+		args = append(args, "--unread")
+	}
+	return r.runCommand(ctx, args...)
 }
 
 // RemoveWorktree removes a git worktree.

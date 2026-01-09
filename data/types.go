@@ -244,8 +244,8 @@ type IssueComments struct {
 	LastLoadedAt time.Time
 }
 
-// MailMessage represents a mail message in the inbox.
-// Loaded via: gt mail inbox --json
+// MailMessage represents a mail message in the unified town inbox.
+// Loaded via: gt mail town --json
 type MailMessage struct {
 	ID        string    `json:"id"`
 	From      string    `json:"from"`
@@ -257,6 +257,8 @@ type MailMessage struct {
 	Priority  string    `json:"priority"`
 	Type      string    `json:"type"`
 	ThreadID  string    `json:"thread_id"`
+	Rig       string    `json:"rig"`  // Rig name (e.g., "perch")
+	Role      string    `json:"role"` // Role (witness, refinery, polecat, crew)
 }
 
 // LifecycleEventType represents the type of lifecycle event.

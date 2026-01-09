@@ -556,6 +556,8 @@ func TestIsDestructiveComplete(t *testing.T) {
 		{ActionMarkMailUnread, false},
 		{ActionAckMail, false},
 		{ActionReplyMail, false},
+		{ActionBulkMailRead, false},
+		{ActionBulkMailArchive, false},
 	}
 
 	for _, tt := range tests {
@@ -589,6 +591,8 @@ func TestActionNameComplete(t *testing.T) {
 		{ActionMarkMailUnread, "Mark unread"},
 		{ActionAckMail, "Acknowledge"},
 		{ActionReplyMail, "Reply"},
+		{ActionBulkMailRead, "Mark all read"},
+		{ActionBulkMailArchive, "Archive all"},
 		{ActionSlingWork, "Sling work"},
 		{ActionHandoff, "Handoff"},
 		{ActionStopAgent, "Stop agent"},

@@ -1177,6 +1177,84 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("Acknowledging mail...", false)
 		return m, m.mailActionCmd(ActionAckMail, mail.ID)
 
+	case "G":
+		// Cycle rig filter (only in Mail section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMail {
+			m.cycleMailRigFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			filterName := m.sidebar.MailRigFilter
+			if filterName == "" {
+				filterName = "all rigs"
+			}
+			m.setStatus("Rig: "+filterName, false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		return m, nil
+
+	case "O":
+		// Cycle role filter (only in Mail section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMail {
+			m.cycleMailRoleFilter()
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			filterName := m.sidebar.MailRoleFilter
+			if filterName == "" {
+				filterName = "all roles"
+			}
+			m.setStatus("Role: "+filterName, false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		return m, nil
+
+	case "u":
+		// Toggle unread filter (only in Mail section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionMail {
+			m.sidebar.MailUnreadOnly = !m.sidebar.MailUnreadOnly
+			m.sidebar.UpdateFromSnapshot(m.snapshot)
+			state := "all"
+			if m.sidebar.MailUnreadOnly {
+				state = "unread only"
+			}
+			m.setStatus("Filter: "+state, false)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		return m, nil
+
+	case "B":
+		// Mark all visible mail as read (bulk action, only in Mail section)
+		if m.sidebar.Section != SectionMail {
+			m.setStatus("Switch to Mail section (press 5) for bulk actions", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if len(m.sidebar.Mail) == 0 {
+			m.setStatus("No mail to mark", true)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Mark All Read",
+			Message: fmt.Sprintf("Mark all visible mail (%d) as read? (y/n)", len(m.sidebar.Mail)),
+			Action:  ActionBulkMailRead,
+			Target:  "",
+		}
+		return m, nil
+
+	case "X":
+		// Archive all visible mail (bulk action, only in Mail section)
+		if m.sidebar.Section != SectionMail {
+			m.setStatus("Switch to Mail section (press 5) for bulk actions", true)
+			return m, statusExpireCmd(3 * time.Second)
+		}
+		if len(m.sidebar.Mail) == 0 {
+			m.setStatus("No mail to archive", true)
+			return m, statusExpireCmd(2 * time.Second)
+		}
+		m.confirmDialog = &ConfirmDialog{
+			Title:   "Archive All",
+			Message: fmt.Sprintf("Archive all visible mail (%d)? (y/n)", len(m.sidebar.Mail)),
+			Action:  ActionBulkMailArchive,
+			Target:  "",
+		}
+		return m, nil
+
 	case "6":
 		if m.focus == PanelSidebar {
 			m.sidebar.Section = SectionLifecycle
@@ -1504,6 +1582,24 @@ func (m Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.commentForm = nil
 				m.setStatus("Adding comment to town-level bead '"+issueID+"'...", false)
 				return m, m.addCommentCmd(issueID, content)
+			}
+		case ActionBulkMailRead:
+			// Mark all visible mail as read
+			if m.sidebar != nil {
+				rig := m.sidebar.MailRigFilter
+				role := m.sidebar.MailRoleFilter
+				unreadOnly := m.sidebar.MailUnreadOnly
+				m.setStatus("Marking all visible mail as read...", false)
+				return m, m.bulkMailActionCmd(ActionBulkMailRead, rig, role, unreadOnly)
+			}
+		case ActionBulkMailArchive:
+			// Archive all visible mail
+			if m.sidebar != nil {
+				rig := m.sidebar.MailRigFilter
+				role := m.sidebar.MailRoleFilter
+				unreadOnly := m.sidebar.MailUnreadOnly
+				m.setStatus("Archiving all visible mail...", false)
+				return m, m.bulkMailActionCmd(ActionBulkMailArchive, rig, role, unreadOnly)
 			}
 		}
 
@@ -1936,6 +2032,24 @@ func (m Model) mailActionCmd(action ActionType, mailID string) tea.Cmd {
 		}
 
 		return actionCompleteMsg{action: action, target: mailID, err: err}
+	}
+}
+
+// bulkMailActionCmd creates a command that executes a bulk mail action.
+func (m Model) bulkMailActionCmd(action ActionType, rig, role string, unreadOnly bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		var err error
+		switch action {
+		case ActionBulkMailRead:
+			err = m.actionRunner.BulkMailRead(ctx, rig, role, unreadOnly)
+		case ActionBulkMailArchive:
+			err = m.actionRunner.BulkMailArchive(ctx, rig, role, unreadOnly)
+		}
+
+		return actionCompleteMsg{action: action, target: "", err: err}
 	}
 }
 
@@ -2539,6 +2653,59 @@ func (m *Model) setLifecycleAgentFilter() {
 	}
 }
 
+// cycleMailRigFilter cycles through available rig filters.
+func (m *Model) cycleMailRigFilter() {
+	// Get available rigs from snapshot
+	var rigs []string
+	if m.snapshot != nil && m.snapshot.Town != nil {
+		for _, rig := range m.snapshot.Town.Rigs {
+			rigs = append(rigs, rig.Name)
+		}
+	}
+
+	// Build filter list: all -> individual rigs
+	filters := append([]string{""}, rigs...)
+
+	current := m.sidebar.MailRigFilter
+	for i, f := range filters {
+		if f == current {
+			m.sidebar.MailRigFilter = filters[(i+1)%len(filters)]
+			m.sidebar.Selection = 0
+			return
+		}
+	}
+	// Default to first rig if current not found
+	if len(rigs) > 0 {
+		m.sidebar.MailRigFilter = rigs[0]
+	} else {
+		m.sidebar.MailRigFilter = ""
+	}
+	m.sidebar.Selection = 0
+}
+
+// cycleMailRoleFilter cycles through role filters.
+func (m *Model) cycleMailRoleFilter() {
+	roles := []string{
+		"",      // all
+		"witness",
+		"refinery",
+		"polecat",
+		"crew",
+	}
+
+	current := m.sidebar.MailRoleFilter
+	for i, r := range roles {
+		if r == current {
+			m.sidebar.MailRoleFilter = roles[(i+1)%len(roles)]
+			m.sidebar.Selection = 0
+			return
+		}
+	}
+	// Default to witness if current not found
+	m.sidebar.MailRoleFilter = "witness"
+	m.sidebar.Selection = 0
+}
+
 // syncSelectedAgent updates selectedAgent and loads audit timeline when navigating in the Agents section.
 // Returns a command to load the audit timeline if needed.
 func (m *Model) syncSelectedAgent() tea.Cmd {
@@ -2746,6 +2913,10 @@ func actionName(action ActionType) string {
 		return "Acknowledge"
 	case ActionReplyMail:
 		return "Reply"
+	case ActionBulkMailRead:
+		return "Mark all read"
+	case ActionBulkMailArchive:
+		return "Archive all"
 	case ActionRemoveWorktree:
 		return "Remove worktree"
 	case ActionCreateWork:
