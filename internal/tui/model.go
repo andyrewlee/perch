@@ -381,6 +381,16 @@ func (m Model) actionCmdWithInput(action ActionType, target, input, extraInput s
 		case ActionExportSnapshot:
 			// Export current snapshot to JSON for debugging
 			err = m.actionRunner.ExportSnapshot(ctx, m.snapshot)
+		// Alert actions
+		case ActionAlertRetry:
+			// Retry failed load by triggering data refresh
+			err = m.actionRunner.AlertRetry(ctx, target)
+		case ActionAlertOpenLogs:
+			// Open logs relevant to the alert source
+			err = m.actionRunner.AlertOpenLogs(ctx, target)
+		case ActionAlertRunDoctor:
+			// Run gt doctor to diagnose issues
+			err = m.actionRunner.AlertRunDoctor(ctx)
 		}
 
 		return actionCompleteMsg{action: action, target: target, err: err}
@@ -670,7 +680,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "r":
-		// Context-dependent: MR retry (MergeQueue), Manual refresh OR restart subsystem (Operator section)
+		// Context-dependent: MR retry (MergeQueue), Alert retry (Alerts), Manual refresh OR restart subsystem (Operator section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionMergeQueue {
 			// Retry failed merge request
 			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
@@ -680,6 +690,19 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			mr := m.sidebar.MRs[m.sidebar.Selection]
 			m.setStatus("Retrying MR "+mr.mr.ID+"...", false)
 			return m, m.actionCmdWithInput(ActionMQRetry, mr.rig, mr.mr.ID, "")
+		}
+		// Retry failed load (Alerts section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionAlerts {
+			// Retry the failed load for the selected alert
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Alerts) {
+				m.setStatus("No alert selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			alert := m.sidebar.Alerts[m.sidebar.Selection]
+			m.setStatus("Retrying "+alert.e.SourceLabel()+"...", false)
+			// Trigger a full data refresh to retry all loads
+			m.isRefreshing = true
+			return m, tea.Batch(m.loadData, statusExpireCmd(3*time.Second))
 		}
 		// Restart infrastructure (Operator section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionOperator {
@@ -780,7 +803,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "d":
-		// Context-dependent: MR details (MergeQueue), Manage dependencies (Beads section) or Delete rig (Rigs section)
+		// Context-dependent: MR details (MergeQueue), Manage dependencies (Beads section), Run doctor (Alerts section), or Delete rig (Rigs section)
 		if m.focus == PanelSidebar && m.sidebar.Section == SectionMergeQueue {
 			// View MR details (blockers, conflicts)
 			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.MRs) {
@@ -801,6 +824,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			bead := m.sidebar.Beads[m.sidebar.Selection]
 			// Load current dependencies when opening dialog
 			return m, m.openDependencyDialog(bead.ID(), bead.Label())
+		}
+		// Run doctor (Alerts section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionAlerts {
+			m.setStatus("Running gt doctor...", false)
+			return m, m.actionCmd(ActionAlertRunDoctor, "")
 		}
 		// Delete selected rig (requires confirmation)
 		if m.selectedRig == "" {
@@ -1056,6 +1084,17 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.actionCmd(ActionOpenSession, m.selectedAgent)
 
 	case "L":
+		// Context-dependent: View logs (Alerts section) or View session output (Agents section)
+		if m.focus == PanelSidebar && m.sidebar.Section == SectionAlerts {
+			// Open logs for the alert source
+			if m.sidebar.Selection < 0 || m.sidebar.Selection >= len(m.sidebar.Alerts) {
+				m.setStatus("No alert selected", true)
+				return m, statusExpireCmd(3 * time.Second)
+			}
+			alert := m.sidebar.Alerts[m.sidebar.Selection]
+			m.setStatus("Opening logs for "+alert.e.SourceLabel()+"...", false)
+			return m, m.actionCmd(ActionAlertOpenLogs, alert.e.Source)
+		}
 		// View recent session output (tmux-optional fallback)
 		// Only works in Agents section
 		if m.sidebar.Section != SectionAgents {
