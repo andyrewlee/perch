@@ -72,6 +72,9 @@ type Model struct {
 	// Rig settings form
 	rigSettingsForm *RigSettingsForm
 
+	// App settings form
+	appSettingsForm *AppSettingsForm
+
 	// Selected items for actions
 	selectedRig    string
 	selectedAgent  string
@@ -633,6 +636,11 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCommentFormKey(msg)
 	}
 
+	// Handle app settings form
+	if m.appSettingsForm != nil {
+		return m.handleAppSettingsFormKey(msg)
+	}
+
 	// Handle rig settings form
 	if m.rigSettingsForm != nil {
 		return m.handleRigSettingsFormKey(msg)
@@ -654,6 +662,12 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "?":
 		m.showHelp = true
+		return m, nil
+
+	case ",":
+		// Open app settings
+		autoRefresh := m.refreshInterval > 0
+		m.appSettingsForm = NewAppSettingsForm(m.refreshInterval, autoRefresh)
 		return m, nil
 
 	case "A":
@@ -2029,6 +2043,45 @@ func (m Model) handleRigSettingsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.rigSettingsForm = nil
 		m.setStatus("Saving settings for '"+settings.Name+"'...", false)
 		return m, m.saveRigSettingsCmd(settings)
+	}
+
+	return m, cmd
+}
+
+// handleAppSettingsFormKey handles key presses when the app settings form is shown.
+func (m Model) handleAppSettingsFormKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	cmd := m.appSettingsForm.Update(msg)
+
+	if m.appSettingsForm.IsCancelled() {
+		m.appSettingsForm = nil
+		m.setStatus("Settings cancelled", false)
+		return m, statusExpireCmd(2 * time.Second)
+	}
+
+	if m.appSettingsForm.IsSubmitted() {
+		// Apply the new refresh interval
+		newInterval := m.appSettingsForm.RefreshInterval()
+		autoRefresh := m.appSettingsForm.AutoRefresh()
+
+		if !autoRefresh {
+			newInterval = 0
+		}
+
+		m.refreshInterval = newInterval
+		m.store.RefreshInterval = newInterval
+		m.appSettingsForm = nil
+
+		if autoRefresh {
+			m.setStatus("Refresh interval set to "+newInterval.String(), false)
+		} else {
+			m.setStatus("Auto-refresh disabled", false)
+		}
+
+		// Restart tick if needed
+		if newInterval > 0 {
+			return m, tea.Batch(m.tickCmd(), statusExpireCmd(2*time.Second))
+		}
+		return m, statusExpireCmd(2 * time.Second)
 	}
 
 	return m, cmd
@@ -3455,6 +3508,10 @@ func (m Model) View() string {
 
 	if m.rigSettingsForm != nil {
 		return m.rigSettingsForm.View(m.width, m.height)
+	}
+
+	if m.appSettingsForm != nil {
+		return m.appSettingsForm.View(m.width, m.height)
 	}
 
 	if m.attachDialog != nil {
