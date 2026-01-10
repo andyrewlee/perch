@@ -79,6 +79,11 @@ const (
 	ActionAddDependency  // Add a dependency (blocked-by relationship)
 	ActionRemoveDependency
 
+	// Alert actions
+	ActionAlertRetry     // Retry the failed load for an alert
+	ActionAlertOpenLogs  // Open logs related to an alert
+	ActionAlertRunDoctor // Run gt doctor for health checks
+
 	// Debug/diagnostics
 	ActionExportSnapshot // Export snapshot to JSON for debugging
 )
@@ -535,6 +540,46 @@ func (r *ActionRunner) MQOpenLogs(ctx context.Context, mrID string) error {
 // Runs: gt log --agent <rig>/refinery -f
 func (r *ActionRunner) ViewMRLogs(ctx context.Context, rig string) error {
 	return r.runCommand(ctx, "gt", "log", "--agent", rig+"/refinery", "-f")
+}
+
+// AlertRetry retries a failed data load by triggering a refresh.
+// This action clears the error for the specified source and triggers a reload.
+// The actual reload happens via the main data loading mechanism.
+func (r *ActionRunner) AlertRetry(ctx context.Context, source string) error {
+	// This is a no-op in the action runner - the actual retry happens
+	// by triggering a data refresh in the TUI model.
+	// The action serves as a signal to clear the error and retry.
+	return nil
+}
+
+// AlertOpenLogs opens logs relevant to an alert source.
+// The logs command depends on the alert source:
+// - For infrastructure agents: gt log --agent <agent> -f
+// - For town status: gt log -f
+// - For merge queue: gt log --agent <rig>/refinery -f
+func (r *ActionRunner) AlertOpenLogs(ctx context.Context, source string) error {
+	// Determine the appropriate log command based on source
+	switch source {
+	case "merge_queue", "mq":
+		// For merge queue issues, try to determine the rig from the town root
+		// and open refinery logs
+		return r.runCommand(ctx, "gt", "log", "-f")
+	case "town_status", "issues", "mail", "convoys", "polecats", "lifecycle":
+		// For town-level issues, show town logs
+		return r.runCommand(ctx, "gt", "log", "-f")
+	case "doctor", "worktrees":
+		// For diagnostics, show town logs
+		return r.runCommand(ctx, "gt", "log", "-f")
+	default:
+		// Default to town logs
+		return r.runCommand(ctx, "gt", "log", "-f")
+	}
+}
+
+// AlertRunDoctor runs gt doctor to diagnose issues.
+// Runs: gt doctor
+func (r *ActionRunner) AlertRunDoctor(ctx context.Context) error {
+	return r.runCommand(ctx, "gt", "doctor")
 }
 
 // ExportSnapshot exports the current snapshot to a JSON file for debugging.

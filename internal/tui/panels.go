@@ -2327,7 +2327,10 @@ func renderAlertDetails(e data.LoadError, snap *data.Snapshot, width int) string
 	lines = append(lines, "")
 
 	// Quick actions hint
-	lines = append(lines, mutedStyle.Render("Press 'r' to refresh and retry loading"))
+	lines = append(lines, headerStyle.Render("Actions"))
+	lines = append(lines, mutedStyle.Render("  r   - refresh and retry loading"))
+	lines = append(lines, mutedStyle.Render("  L   - open logs for this source"))
+	lines = append(lines, mutedStyle.Render("  d   - run gt doctor"))
 
 	return strings.Join(lines, "\n")
 }
