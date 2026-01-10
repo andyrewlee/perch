@@ -666,11 +666,23 @@ func RenderOperatorSection(state *OperatorState, selection int, isActive bool, w
 
 		badge := sub.Status.Badge()
 		label := sub.Name
-		if len(label) > width-8 {
-			label = label[:width-11] + "..."
+
+		// Add inline action buttons for controllable subsystems
+		var actions string
+		if isControllableSubsystem(sub.Subsystem) {
+			actions = renderInlineActionButtons(sub)
 		}
 
-		line := fmt.Sprintf("  %s %s", badge, label)
+		// Truncate label to make room for actions
+		maxLabelLen := width - 8 - len(actions)
+		if maxLabelLen < 10 {
+			maxLabelLen = 10
+		}
+		if len(label) > maxLabelLen {
+			label = label[:maxLabelLen-3] + "..."
+		}
+
+		line := fmt.Sprintf("  %s %s%s", badge, label, actions)
 		if isActive && i == selection {
 			lines = append(lines, selectedItemStyle.Render("> "+line[2:]))
 		} else {
@@ -679,6 +691,39 @@ func RenderOperatorSection(state *OperatorState, selection int, isActive bool, w
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// renderInlineActionButtons renders compact inline action buttons for a subsystem.
+// Shows start/stop/restart buttons based on current state.
+func renderInlineActionButtons(sub SubsystemHealth) string {
+	isRunning := sub.Status == SubsystemHealthy
+	isStopped := sub.Status == SubsystemError || sub.Status == SubsystemUnknown
+
+	var buttons []string
+
+	// Start button (if stopped)
+	if isStopped {
+		buttons = append(buttons, inlineStartStyle.Render("▶b"))
+	}
+
+	// Stop button (if running)
+	if isRunning {
+		buttons = append(buttons, inlineStopStyle.Render("■s"))
+	}
+
+	// Restart button (always shown for controllable subsystems)
+	buttons = append(buttons, inlineRestartStyle.Render("↻r"))
+
+	// Error button (if there's an error) - use Enter to view details
+	if sub.LastError != "" {
+		buttons = append(buttons, inlineErrorStyle.Render("⚠?"))
+	}
+
+	if len(buttons) == 0 {
+		return ""
+	}
+
+	return " " + strings.Join(buttons, " ")
 }
 
 // RenderOperatorDetails renders the details panel for the operator console.
@@ -776,7 +821,7 @@ func RenderOperatorDetails(state *OperatorState, selection int, width int) strin
 	}
 
 	// Quick actions hint
-	lines = append(lines, mutedStyle.Render("Controls: [b] Start  [s] Stop  [r] Restart  [R] Refresh"))
+	lines = append(lines, mutedStyle.Render("Inline: ▶b Start  ■s Stop  ↻r Restart  ⚠? Error | [R] Refresh"))
 
 	return strings.Join(lines, "\n")
 }
@@ -862,4 +907,21 @@ var (
 	operatorUrgentActionStyle = lipgloss.NewStyle().
 					Foreground(lipgloss.Color("#FF6666")).
 					Bold(true)
+
+	// Inline action button styles (compact buttons in sidebar list)
+	inlineStartStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00FF00")).
+				Bold(true)
+
+	inlineStopStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FF6666")).
+				Bold(true)
+
+	inlineRestartStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#00BFFF")).
+				Bold(true)
+
+	inlineErrorStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color("#FFCC00")).
+				Bold(true)
 )

@@ -4040,7 +4040,7 @@ func (m Model) renderFooter() string {
 				helpItems = append(helpItems, "r: retry")
 			}
 			if m.sidebar.Section == SectionOperator {
-				helpItems = append(helpItems, "b: start", "s: stop", "r: restart")
+				helpItems = append(helpItems, "inline: b/s/r")
 			}
 		}
 		helpItems = append(helpItems, "w: new work", "a: add rig", "A: attach", "r: refresh", "b: boot", "s: stop", "d: delete", "o: logs")
