@@ -22,6 +22,8 @@ type KeyMap struct {
 
 	// Refresh reloads the current view.
 	Refresh key.Binding
+	// Settings opens the app settings.
+	Settings key.Binding
 	// Help toggles the help screen.
 	Help key.Binding
 	// Quit exits the application.
@@ -63,6 +65,10 @@ func DefaultKeyMap() KeyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
+		Settings: key.NewBinding(
+			key.WithKeys(","),
+			key.WithHelp(",", "settings"),
+		),
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?", "help"),
@@ -86,6 +92,7 @@ func (k KeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Left, k.Right},
 		{k.NextPanel, k.PrevPanel, k.Select},
-		{k.Refresh, k.Help, k.Quit},
+		{k.Refresh, k.Settings, k.Help},
+		{k.Quit},
 	}
 }
