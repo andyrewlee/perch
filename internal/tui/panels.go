@@ -240,8 +240,9 @@ func (b beadItem) Status() string { return b.issue.Status }
 // rigItem wraps data.Rig for selection with aggregated counts
 type rigItem struct {
 	r          data.Rig
-	mrCount    int // merge request count for this rig
-	hooksStale bool // true if hooks count is stale (hooked issues failed to load)
+	mrCount    int                       // merge request count for this rig
+	mrs        []data.MergeRequest       // merge queue items for this rig
+	hooksStale bool                      // true if hooks count is stale (hooked issues failed to load)
 }
 
 func (r rigItem) ID() string { return r.r.Name }
@@ -770,7 +771,12 @@ func (s *SidebarState) UpdateFromSnapshot(snap *data.Snapshot) {
 	if snap.Town != nil {
 		s.Rigs = make([]rigItem, len(snap.Town.Rigs))
 		for i, r := range snap.Town.Rigs {
-			s.Rigs[i] = rigItem{r: r, mrCount: mrCounts[r.Name], hooksStale: snap.HooksCountStale()}
+			s.Rigs[i] = rigItem{
+				r:          r,
+				mrCount:    mrCounts[r.Name],
+				mrs:        snap.MergeQueues[r.Name],
+				hooksStale: snap.HooksCountStale(),
+			}
 		}
 	}
 
@@ -3033,7 +3039,103 @@ func renderRigDetails(r rigItem, width int) string {
 	}
 	lines = append(lines, fmt.Sprintf("Agents:     %d running", running))
 
+	// Merge queue inspector
+	if len(r.mrs) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, headerStyle.Render("Merge Queue Inspector"))
+		for i, mr := range r.mrs {
+			if i > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, renderMergeQueueItem(mr, width))
+		}
+	}
+
 	return strings.Join(lines, "\n")
+}
+
+// renderMergeQueueItem renders a single merge queue item with status, age, blockers, and next action
+func renderMergeQueueItem(mr data.MergeRequest, width int) string {
+	var lines []string
+
+	// Title (truncate if too long)
+	title := mr.Title
+	if len(title) > width-8 {
+		title = truncate(title, width-8) + "..."
+	}
+	lines = append(lines, headerStyle.Render("• "+title))
+
+	// Status line
+	statusLine := fmt.Sprintf("  Status: %s", formatMQStatus(mr.Status))
+	lines = append(lines, statusLine)
+
+	// Age line (if we have last checked info)
+	if mr.LastChecked != "" {
+		lines = append(lines, fmt.Sprintf("  Age:    %s", mutedStyle.Render(mr.LastChecked)))
+	}
+
+	// Blockers section
+	var blockers []string
+	if mr.HasConflicts {
+		blockers = append(blockers, queueConflictBadge.Render("⚠ conflicts"))
+	}
+	if mr.NeedsRebase {
+		blockers = append(blockers, queueRebaseBadge.Render("↻ rebase needed"))
+	}
+	if len(blockers) > 0 {
+		lines = append(lines, fmt.Sprintf("  Blockers: %s", strings.Join(blockers, " ")))
+	}
+
+	// Next action based on status and blockers
+	nextAction := formatNextAction(mr)
+	lines = append(lines, fmt.Sprintf("  Next:    %s", mutedStyle.Render(nextAction)))
+
+	return strings.Join(lines, "\n")
+}
+
+// formatMQStatus returns a styled status string for merge queue items
+func formatMQStatus(status string) string {
+	switch status {
+	case "pending":
+		return queuePendingStyle.Render(status)
+	case "processing":
+		return queueProcessingStyle.Render(status)
+	case "ready":
+		return queueReadyStyle.Render(status)
+	case "failed":
+		return queueFailedStyle.Render(status)
+	case "merged":
+		return queueOkStyle.Render(status)
+	default:
+		return mutedStyle.Render(status)
+	}
+}
+
+// formatNextAction returns the recommended next action for a merge queue item
+func formatNextAction(mr data.MergeRequest) string {
+	switch mr.Status {
+	case "failed":
+		if mr.HasConflicts {
+			return "Resolve conflicts, then retry merge"
+		}
+		return "Check logs and retry"
+	case "processing":
+		return "Wait for completion"
+	case "ready":
+		return "Ready to merge - waiting for refinery"
+	case "pending":
+		if mr.HasConflicts {
+			return "Resolve conflicts to proceed"
+		}
+		if mr.NeedsRebase {
+			return "Rebase branch to proceed"
+		}
+		return "Waiting in queue"
+	case "merged":
+		return "Merged successfully"
+	default:
+		return "No action required"
+	}
 }
 
 func renderMailDetails(m data.MailMessage, width int) string {
