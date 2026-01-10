@@ -113,6 +113,9 @@ type Model struct {
 	// Town map view (interactive rig tiles)
 	townMapView  *TownMapView
 	showTownMap  bool // True when town map view is active
+
+	// Hook activity strip (shows active and recently completed hooks)
+	hookActivityStrip *hookActivityStripState
 }
 
 // GetDefaultTownRoot returns the default Gas Town root directory.
@@ -435,6 +438,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.snapshot = msg.snapshot
 		m.sidebar.UpdateFromSnapshot(msg.snapshot)
 		m.updateQueueHealth(msg.snapshot)
+
+		// Update hook activity strip
+		m.hookActivityStrip = buildHookActivityStrip(msg.snapshot, m.hookActivityStrip)
 
 		// Validate selected rig still exists, reset if not
 		if m.selectedRig != "" && msg.snapshot != nil && msg.snapshot.Town != nil {
@@ -3517,9 +3523,10 @@ func (m Model) View() string {
 
 // renderLayout creates the full layout
 func (m Model) renderLayout() string {
-	// Reserve space for footer
+	// Reserve space for footer and hook strip
 	footerHeight := 1
-	availableHeight := m.height - footerHeight
+	hookStripHeight := 3
+	availableHeight := m.height - footerHeight - hookStripHeight
 
 	// Calculate panel dimensions
 	overviewHeight := availableHeight * 35 / 100 // 35% for overview
@@ -3579,13 +3586,16 @@ func (m Model) renderLayout() string {
 	}
 	activity := RenderActivityFeed(activityState, activityWidth, bodyHeight, m.focus == PanelActivity)
 
+	// Render hook activity strip
+	hookStrip := RenderHookActivityStrip(m.hookActivityStrip, m.width)
+
 	footer := m.renderFooter()
 
 	// Combine sidebar, details, and activity horizontally
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, details, activity)
 
-	// Stack vertically
-	return lipgloss.JoinVertical(lipgloss.Left, overview, body, footer)
+	// Stack vertically: overview, hook strip, body, footer
+	return lipgloss.JoinVertical(lipgloss.Left, overview, hookStrip, body, footer)
 }
 
 // renderTownMap renders the interactive town map view.
