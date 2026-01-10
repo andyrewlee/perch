@@ -364,27 +364,48 @@ func renderDashboardHints() string {
 
 // AgentDetailDialog shows detailed information about a single agent.
 type AgentDetailDialog struct {
-	Agent         data.Agent
-	RigName       string
-	HealthStatus  AgentHealthStatus
-	WorkAge       time.Duration
-	LastHeartbeat time.Time
-	MailUnread    int
-	SelectedAction int // 0=nudge, 1=attach, 2=mail, 3=handoff/stop/start
-	ShowActions   bool // Toggle action menu visibility
+	Agent              data.Agent
+	RigName            string
+	HealthStatus       AgentHealthStatus
+	WorkAge            time.Duration
+	LastHeartbeat      time.Time
+	MailUnread         int
+	SelectedAction     int // 0=nudge, 1=attach, 2=mail, 3=handoff/stop/start
+	ShowActions        bool // Toggle action menu visibility
+	LastActivitySummary string // Summary of the most recent audit log entry
+	LastActivityTime   time.Time // Timestamp of the most recent activity
 }
 
 // NewAgentDetailDialog creates a new agent detail dialog from an AgentEntry.
-func NewAgentDetailDialog(entry AgentEntry) *AgentDetailDialog {
+// Optionally accepts audit timeline entries to show the last activity.
+func NewAgentDetailDialog(entry AgentEntry, auditEntries []data.AuditEntry) *AgentDetailDialog {
+	var lastSummary string
+	var lastTime time.Time
+
+	// Find the most recent audit entry for last activity display
+	if len(auditEntries) > 0 {
+		// Entries are typically sorted by timestamp descending, but find the latest anyway
+		latest := auditEntries[0]
+		for _, e := range auditEntries {
+			if e.Timestamp.After(latest.Timestamp) {
+				latest = e
+			}
+		}
+		lastSummary = latest.Summary
+		lastTime = latest.Timestamp
+	}
+
 	return &AgentDetailDialog{
-		Agent:         entry.Agent,
-		RigName:       entry.RigName,
-		HealthStatus:  entry.HealthStatus,
-		WorkAge:       entry.WorkAge,
-		LastHeartbeat: entry.LastHeartbeat,
-		MailUnread:    entry.MailUnread,
-		SelectedAction: 0,
-		ShowActions:   true,
+		Agent:               entry.Agent,
+		RigName:             entry.RigName,
+		HealthStatus:        entry.HealthStatus,
+		WorkAge:             entry.WorkAge,
+		LastHeartbeat:       entry.LastHeartbeat,
+		MailUnread:          entry.MailUnread,
+		SelectedAction:      0,
+		ShowActions:         true,
+		LastActivitySummary: lastSummary,
+		LastActivityTime:    lastTime,
 	}
 }
 
@@ -429,6 +450,25 @@ func (d *AgentDetailDialog) Render(width, height int) string {
 	} else {
 		lines = append(lines, "")
 		lines = append(lines, mutedStyle.Render("  No work hooked"))
+	}
+
+	// Last activity section
+	lines = append(lines, "")
+	lines = append(lines, dialogSectionStyle.Render("┌─ Last Activity ─────────────────"))
+	if d.LastActivitySummary != "" {
+		lines = append(lines, "")
+		// Truncate summary if too long
+		summary := d.LastActivitySummary
+		if len(summary) > 40 {
+			summary = truncateString(summary, 40)
+		}
+		lines = append(lines, "  "+dialogValueStyle.Render(summary))
+		if !d.LastActivityTime.IsZero() {
+			lines = append(lines, "  "+mutedStyle.Render(formatTimestamp(d.LastActivityTime)))
+		}
+	} else {
+		lines = append(lines, "")
+		lines = append(lines, mutedStyle.Render("  No recent activity"))
 	}
 
 	// Mail section

@@ -1173,7 +1173,7 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				entry.HealthStatus = AgentIdle
 			}
-			m.agentDetailDialog = NewAgentDetailDialog(entry)
+			m.agentDetailDialog = NewAgentDetailDialog(entry, m.auditTimeline)
 			return m, nil
 		}
 		return m, nil
